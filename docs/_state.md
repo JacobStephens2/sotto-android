@@ -1,6 +1,6 @@
 # _state.md - sotto-android session handoff
 
-Phase: **Phase 1 nearly complete (2026-06-12): TextPipeline, NarrationEngine, Room store, FileAudioSink, SherpaSynthesizer wiring, instrumented resume test, CI green.** Phase 1 gate harness shipped in spike-003: 'Phase 1 gate' button narrates the bundled encyclical through the real stack (Sherpa -> ADTS -> Room -> sink); 'Kill process' + re-tap proves resume on hardware. Awaiting Jacob's run. Then Phase 2 (vertical slice).
+Phase: **Phase 1 nearly complete (2026-06-12): TextPipeline, NarrationEngine, Room store, FileAudioSink, SherpaSynthesizer wiring, instrumented resume test, CI green.** Phase 1 gate: **kill/resume PROVEN on hardware 2026-06-12** - Jacob ran the gate to chunk 8/324, killed the process, re-tapped: 'resuming from chunk 8' through the full real stack (Room + truncate + Kokoro + ADTS). 324 chunks matches the server's count for the same document (pipeline parity in the wild). Remaining: let the gate run to GATE COMPLETE (~4-5 h synthesis; resumable in any number of sittings - every kill/charge break just resumes). Then Phase 2 (vertical slice).
 Updated: 2026-06-12
 
 ## Decisions snapshot
