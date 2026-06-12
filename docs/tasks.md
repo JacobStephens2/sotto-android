@@ -18,10 +18,9 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
 
 ## Phase 1 - engine
 
-- [ ] **Server repo:** write `tools/generate_pipeline_vectors.py` producing
-      pipeline-vectors.json from clean_markdown/chunk over the agreed corpus;
-      publish hash
-- [ ] Port cleanMarkdown + chunk with vectors green
+- [x] **Server repo:** `tools/generate_pipeline_vectors.py` + 24-case
+      pipeline-vectors.json committed (sha256 7566642d...) - 2026-06-12
+- [x] Port cleanMarkdown + chunk - all 24 vectors green on JVM (engine/text/TextPipeline.kt) - 2026-06-12
 - [ ] Room schema per 11-data-model.md; migrations baseline
 - [ ] NarrationEngine with per-chunk durability + resume; kill-test
       byte-identity

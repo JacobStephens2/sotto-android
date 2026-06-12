@@ -32,4 +32,6 @@ android {
 
 dependencies {
     implementation(files("libs/sherpa-onnx-1.13.2.aar"))
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
