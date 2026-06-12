@@ -68,17 +68,16 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
 
 ## Phase 5 - sync (ADR-007, 12-api-contract.md)
 
-- [ ] **Server repo:** /api/v1 token auth (hashed tokens in
-      state/api_tokens.json, account-page management, rate limit, audit lines)
-- [ ] **Server repo:** library list/download/upload/rename/delete endpoints
-      honoring existing sidecars
-- [ ] App `sync` source set: API client, Connect-account screen, token in
-      Keystore-backed storage
-- [ ] Pull (SERVER_ONLY rows, download on demand), push (upload local-only),
-      rename LWW; per 12-api-contract.md semantics
-- [ ] Sync-flavor CI guard (INTERNET only; dependency allowlist)
-- [ ] End-to-end: narrate on phone → upload → play in desktop browser; narrate
-      on web → download → play offline on phone
+- [x] **Server repo:** /api/v1 token auth + account-page token management - 2026-06-12
+- [x] **Server repo:** library endpoints, sidecar-honoring; .aac/.m4a first-class
+      across the web app - 2026-06-12
+- [x] App sync source set: stdlib-only API client, Connect screen,
+      EncryptedSharedPreferences token - 2026-06-12
+- [x] Pull/download/push/rename-LWW per the contract - 2026-06-12
+- [x] Sync-flavor CI guard (INTERNET only) - shipped with Phase 4's flavor split
+- [x] E2E both directions against the LIVE server (emulator, throwaway account,
+      cleaned up): connect → sync (1 new) → download → playing; narrate →
+      upload → server sidecars + audit line - 2026-06-12
 
 ## Phase 3 addenda
 

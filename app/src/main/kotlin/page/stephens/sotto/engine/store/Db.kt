@@ -78,6 +78,15 @@ interface OrationDao {
     @Query("UPDATE orations SET title = :title, updatedAt = :now WHERE id = :id")
     fun rename(id: String, title: String, now: Long)
 
+    @Query("SELECT * FROM orations WHERE serverName = :name")
+    fun byServerName(name: String): OrationEntity?
+
+    @Query("UPDATE orations SET serverName = :name, serverMtime = :mtime, updatedAt = :now WHERE id = :id")
+    fun markSynced(id: String, name: String, mtime: Long, now: Long)
+
+    @Query("UPDATE orations SET downloaded = 1, audioBytes = :bytes, status = 'COMPLETE', updatedAt = :now WHERE id = :id")
+    fun setDownloaded(id: String, bytes: Long, now: Long)
+
     // Per-device seconds-per-word samples for the calibrated estimate
     // (the server's calibrated_rates, local; median taken in Kotlin).
     @Query("SELECT narratedMs * 1.0 / 1000 / words FROM orations WHERE status = 'COMPLETE' AND words >= 50 AND narratedMs > 0")

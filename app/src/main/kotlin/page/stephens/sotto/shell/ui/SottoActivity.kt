@@ -89,11 +89,13 @@ private sealed class Screen {
     data class Confirm(val text: String) : Screen()
     data class Play(val id: String) : Screen()
     data object About : Screen()
+    data object Account : Screen()
 }
 
 class SottoActivity : ComponentActivity() {
 
     private lateinit var db: SottoDatabase
+    private val sync by lazy { page.stephens.sotto.shell.sync.Sync.provider(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -108,9 +110,13 @@ class SottoActivity : ComponentActivity() {
                 BackHandler(enabled = screen != Screen.Library) { screen = Screen.Library }
                 when (val s = screen) {
                     is Screen.Library -> LibraryScreen(
-                        onOpen = { o -> openOration(o); screen = Screen.Play(o.id) },
+                        onOpen = { o ->
+                            if (!o.downloaded) downloadFromServer(o)
+                            else { openOration(o); screen = Screen.Play(o.id) }
+                        },
                         onAbout = { screen = Screen.About },
-                        onCompose = { screen = Screen.Compose })
+                        onCompose = { screen = Screen.Compose },
+                        onAccount = if (sync != null) ({ screen = Screen.Account }) else null)
                     is Screen.Compose -> ComposeScreen(
                         onContinue = { text -> screen = Screen.Confirm(text) },
                         onBack = { screen = Screen.Library })
@@ -118,6 +124,7 @@ class SottoActivity : ComponentActivity() {
                         onDone = { screen = Screen.Library })
                     is Screen.Play -> PlayerScreen(s.id, onBack = { screen = Screen.Library })
                     is Screen.About -> AboutScreen(onBack = { screen = Screen.Library })
+                    is Screen.Account -> AccountScreen(onBack = { screen = Screen.Library })
                 }
             }
         }
@@ -241,11 +248,13 @@ class SottoActivity : ComponentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
     @Composable
-    private fun LibraryScreen(onOpen: (OrationEntity) -> Unit, onAbout: () -> Unit, onCompose: () -> Unit) {
+    private fun LibraryScreen(onOpen: (OrationEntity) -> Unit, onAbout: () -> Unit,
+                              onCompose: () -> Unit, onAccount: (() -> Unit)?) {
         val items by db.orations().allFlow().collectAsState(initial = emptyList())
         var sheetFor by remember { mutableStateOf<OrationEntity?>(null) }
         Scaffold(topBar = {
             TopAppBar(title = { Text("Sotto") }, actions = {
+                if (onAccount != null) TextButton(onClick = onAccount) { Text("Account") }
                 TextButton(onClick = onAbout) { Text("About") }
                 TextButton(onClick = {
                     startActivity(Intent(this@SottoActivity, page.stephens.sotto.spike.MainActivity::class.java))
@@ -281,12 +290,25 @@ class SottoActivity : ComponentActivity() {
         sheetFor?.let { o -> OrationSheet(o, onDismiss = { sheetFor = null }) }
     }
 
-    private fun subtitleOf(o: OrationEntity) = when (o.status) {
+    private fun subtitleOf(o: OrationEntity) = if (!o.downloaded)
+        "On your server · ${fmtSecs(o.audioDurationMs / 1000)} · tap to download"
+    else when (o.status) {
         "NARRATING" -> "Narrating · ${o.chunksDone} / ${o.chunksTotal ?: "?"}"
         "QUEUED" -> "Queued" + if (o.chunksDone > 0) " · resumes from chunk ${o.chunksDone}" else ""
         "STOPPED" -> "Stopped at ${o.chunksDone} / ${o.chunksTotal ?: "?"} · tap to resume"
         "ERROR" -> "Failed: ${o.errorMessage ?: "unknown"} · tap to retry"
-        else -> "${fmtSecs(o.audioBytes * 8 / 64_000)} · ${o.words} words"
+        else -> "${fmtSecs(if (o.audioDurationMs > 0) o.audioDurationMs / 1000 else o.audioBytes * 8 / 64_000)} · ${o.words} words" +
+            (if (o.serverName != null) " · synced" else "")
+    }
+
+    private fun downloadFromServer(o: OrationEntity) {
+        lifecycleScope.launch {
+            sync?.download(o)?.onFailure { t ->
+                lifecycleScope.launch(Dispatchers.IO) {
+                    JobLog(db.joblog()).log("error", o.title, o.id, "download: $t")
+                }
+            }
+        }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -309,6 +331,14 @@ class SottoActivity : ComponentActivity() {
                 modifier = Modifier.clickable { renaming = true })
             ListItem(headlineContent = { Text("View source text") },
                 modifier = Modifier.clickable { viewingSource = true })
+            if (sync?.accountEmail() != null && o.serverName == null && o.downloaded &&
+                o.status in listOf("COMPLETE", "STOPPED")) {
+                ListItem(headlineContent = { Text("Upload to account") },
+                    modifier = Modifier.clickable {
+                        lifecycleScope.launch { sync?.upload(o) }
+                        onDismiss()
+                    })
+            }
             ListItem(headlineContent = { Text("Export audio") },
                 modifier = Modifier.clickable {
                     export.launch(o.title.replace(Regex("[^A-Za-z0-9 _-]"), "").take(60) + ".aac")
@@ -458,6 +488,69 @@ class SottoActivity : ComponentActivity() {
                         Text("Stop narrating (keeps what's done)")
                     }
                 }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- Account
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun AccountScreen(onBack: () -> Unit) {
+        val provider = sync ?: return
+        var email by remember { mutableStateOf(provider.accountEmail()) }
+        var server by remember { mutableStateOf("sotto.stephens.page") }
+        var formEmail by remember { mutableStateOf("") }
+        var password by remember { mutableStateOf("") }
+        var status by remember { mutableStateOf<String?>(null) }
+        var busy by remember { mutableStateOf(false) }
+        Scaffold(topBar = {
+            TopAppBar(title = { Text("Account") },
+                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } })
+        }) { pad ->
+            Column(Modifier.padding(pad).padding(16.dp).verticalScroll(rememberScrollState())) {
+                val connected = email
+                if (connected == null) {
+                    Text("Connect your Sotto server account to keep one library on " +
+                        "this phone and your desktop browser. Narration always stays " +
+                        "on this device - only finished orations sync.",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(value = server, onValueChange = { server = it },
+                        label = { Text("Server") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = formEmail, onValueChange = { formEmail = it },
+                        label = { Text("Email") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = password, onValueChange = { password = it },
+                        label = { Text("Password") }, singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(12.dp))
+                    Button(enabled = !busy && formEmail.isNotBlank() && password.isNotBlank(),
+                        onClick = {
+                            busy = true
+                            lifecycleScope.launch {
+                                provider.connect(server, formEmail, password)
+                                    .onSuccess { m -> status = m; email = provider.accountEmail(); password = "" }
+                                    .onFailure { t -> status = "Could not connect: ${t.message}" }
+                                busy = false
+                            }
+                        }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Connecting..." else "Connect") }
+                } else {
+                    Text("Connected as $connected", style = MaterialTheme.typography.bodyLarge)
+                    Spacer(Modifier.height(12.dp))
+                    Button(enabled = !busy, onClick = {
+                        busy = true
+                        lifecycleScope.launch {
+                            provider.syncNow()
+                                .onSuccess { m -> status = m }
+                                .onFailure { t -> status = "Sync failed: ${t.message}" }
+                            busy = false
+                        }
+                    }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Syncing..." else "Sync now") }
+                    TextButton(onClick = { provider.disconnect(); email = null; status = "Disconnected." },
+                        modifier = Modifier.fillMaxWidth()) { Text("Disconnect") }
+                }
+                status?.let { Spacer(Modifier.height(12.dp)); Text(it, style = MaterialTheme.typography.bodyMedium) }
             }
         }
     }
