@@ -4,10 +4,10 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
 
 ## Now (Phase 0 - SPIKE-001)
 
-- [ ] Create `sotto-android` repo (private until 1.0 or until decided);
-      license decision per repo conventions
-- [ ] Copy this doc-set into the repo; move ownership there (README note in
-      sotto server repo pointing across)
+- [x] Create `sotto-android` repo (created private 2026-06-12:
+      github.com/JacobStephens2/sotto-android); license decision still open
+- [x] Copy this doc-set into the repo (canonical here as docs/ since
+      2026-06-12; server copy is non-canonical) - server-README pointer pending
 - [ ] Bare spike app: sherpa-onnx dependency, bundled Kokoro int8 + voices,
       synthesize fixed 2,000-word text to PCM on-device
 - [ ] Measure on the floor device: RTF, battery %/hr, thermals 30 min, peak
