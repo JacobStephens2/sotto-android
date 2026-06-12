@@ -85,6 +85,7 @@ private val VOICES = listOf(
 
 private sealed class Screen {
     data object Library : Screen()
+    data object Compose : Screen()
     data class Confirm(val text: String) : Screen()
     data class Play(val id: String) : Screen()
     data object About : Screen()
@@ -108,7 +109,11 @@ class SottoActivity : ComponentActivity() {
                 when (val s = screen) {
                     is Screen.Library -> LibraryScreen(
                         onOpen = { o -> openOration(o); screen = Screen.Play(o.id) },
-                        onAbout = { screen = Screen.About })
+                        onAbout = { screen = Screen.About },
+                        onCompose = { screen = Screen.Compose })
+                    is Screen.Compose -> ComposeScreen(
+                        onContinue = { text -> screen = Screen.Confirm(text) },
+                        onBack = { screen = Screen.Library })
                     is Screen.Confirm -> ConfirmScreen(s.text,
                         onDone = { screen = Screen.Library })
                     is Screen.Play -> PlayerScreen(s.id, onBack = { screen = Screen.Library })
@@ -203,9 +208,40 @@ class SottoActivity : ComponentActivity() {
 
     // ---------------------------------------------------------------- Library
 
+    // ---------------------------------------------------------------- Compose
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun ComposeScreen(onContinue: (String) -> Unit, onBack: () -> Unit) {
+        var text by remember { mutableStateOf("") }
+        val words = remember(text) {
+            text.trim().let { if (it.isEmpty()) 0 else it.split(Regex("\\s+")).size }
+        }
+        Scaffold(topBar = {
+            TopAppBar(title = { Text("New oration") },
+                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } })
+        }) { pad ->
+            Column(Modifier.padding(pad).padding(16.dp).fillMaxSize()) {
+                OutlinedTextField(
+                    value = text, onValueChange = { text = it },
+                    label = { Text("Paste or type what Sotto should read") },
+                    placeholder = { Text("# Markdown welcome\n\nHeadings get pauses; links and tables are read for the ear.") },
+                    modifier = Modifier.fillMaxWidth().weight(1f))
+                Spacer(Modifier.height(8.dp))
+                Text(if (words == 0) "Nothing yet" else "$words words",
+                    style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = { onContinue(text) }, enabled = words > 0,
+                    modifier = Modifier.fillMaxWidth()) { Text("Continue") }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- Library
+
     @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
     @Composable
-    private fun LibraryScreen(onOpen: (OrationEntity) -> Unit, onAbout: () -> Unit) {
+    private fun LibraryScreen(onOpen: (OrationEntity) -> Unit, onAbout: () -> Unit, onCompose: () -> Unit) {
         val items by db.orations().allFlow().collectAsState(initial = emptyList())
         var sheetFor by remember { mutableStateOf<OrationEntity?>(null) }
         Scaffold(topBar = {
@@ -215,9 +251,11 @@ class SottoActivity : ComponentActivity() {
                     startActivity(Intent(this@SottoActivity, page.stephens.sotto.spike.MainActivity::class.java))
                 }) { Text("Lab") }
             })
+        }, floatingActionButton = {
+            androidx.compose.material3.ExtendedFloatingActionButton(onClick = onCompose) { Text("+  Write") }
         }) { pad ->
             if (items.isEmpty()) Column(Modifier.padding(pad).padding(24.dp)) {
-                Text("Share text to Sotto from any app to hear it narrated.",
+                Text("Share text to Sotto from any app, or tap Write to paste it here.",
                     style = MaterialTheme.typography.bodyLarge)
             } else LazyColumn(Modifier.padding(pad).fillMaxSize()) {
                 items(items, key = { it.id }) { o ->
