@@ -51,9 +51,16 @@ class MainActivity : Activity() {
         val btnSustained = Button(this).apply { text = "Sustained 30 min"; setOnClickListener { startRun(minutes = 30) } }
         val btnStop = Button(this).apply { text = "Stop"; setOnClickListener { running.set(false) } }
         val btnPlay = Button(this).apply { text = "Play last chunk"; setOnClickListener { playLast() } }
+        // Vertical, full-width: a horizontal row overflowed the screen on device.
+        val full = { b: Button ->
+            b.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            b
+        }
         val buttons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(btnOnce); addView(btnSustained); addView(btnStop); addView(btnPlay)
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 0, 24, 0)
+            addView(full(btnOnce)); addView(full(btnSustained)); addView(full(btnStop)); addView(full(btnPlay))
         }
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
