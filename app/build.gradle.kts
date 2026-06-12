@@ -13,8 +13,8 @@ android {
         applicationId = "page.stephens.sotto.spike"
         minSdk = 29
         targetSdk = 34   // spike-only: avoids SDK-35 edge-to-edge insets work
-        versionCode = 3
-        versionName = "spike-001c"
+        versionCode = 4
+        versionName = "spike-002"
         ndk { abiFilters += "arm64-v8a" }   // ADR-005: release perf claims are arm64-only
     }
 

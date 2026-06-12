@@ -18,11 +18,18 @@ Updated: 2026-06-12
 
 | Metric | Value | Device | Date |
 |---|---|---|---|
-| RTF sustained | - | - | - |
-| Battery %/hr (synth+play) | - | - | - |
-| Thermal (30 min) | - | - | - |
-| Peak RSS | - | - | - |
-| APK size (local, release) | - | - | - |
+| RTF (run-once, 8 chunks, 4 threads) | **1.22x** synth basis | Jacob's arm64 phone | 2026-06-12 |
+| RTF sustained 30 min | pending (spike-001 sustained run invalid: state race + device suspend; rerun on spike-002) | - | - |
+| Battery %/hr (pure synthesis, 4T) | ~30%/hr (interim, from 5.9-min run-once) | same | 2026-06-12 |
+| Thermal | NONE throughout run-once | same | 2026-06-12 |
+| Peak PSS | 1,080 MB | same | 2026-06-12 |
+| Model load | 1.0-1.2s | same | 2026-06-12 |
+| APK size (spike, debug, model bundled) | 203 MB | - | 2026-06-12 |
+
+Interim verdict: run-once **passes the 1.0x gate** (below the 1.3x comfort target).
+Open quality flag: int8 output sounds "a bit tinny / ringy" (Jacob, on-device) -
+A/B against the fp32 model before confirming ADR-002's int8 choice.
+Spike-002 adds: overlap-proof runs, suspend-aware clocks, thread sweep (2/3/4).
 
 Reference points from the server (not phone numbers): VPS 4-core EPYC ≈ 1.4x
 RTF, 0.26 s/word; council research cites puff-dayo/Kokoro-82M-Android as
