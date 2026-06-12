@@ -29,9 +29,12 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
 
 ## Phase 2 - vertical slice (21-vertical-slice-plan.md)
 
-- [ ] Share-intent → Confirm → narrate-while-listening → library row
-- [ ] NarrationService + MediaSession + single notification
-- [ ] Playhead governor ("catching up")
+- [x] Share-intent → Confirm (derived title, estimate) → narrate → library row
+      (verified end-to-end on emulator via uiautomator/state, 2026-06-12)
+- [x] NarrationService (Media3 MediaSessionService) + MediaSession w/ metadata
+      (session live with title/artist on emulator) - 2026-06-12
+- [x] Playhead governor: 2s loop persists playhead + re-resolves the growing
+      ADTS file on STATE_ENDED while narrating - 2026-06-12 (device validation pending)
 - [x] ci.yml live and green (tests, assemble, zero-permission manifest guard,
       third-party cache) - 2026-06-12. Remaining: release.yml dry run
 - [ ] One week of daily real use - exit gate

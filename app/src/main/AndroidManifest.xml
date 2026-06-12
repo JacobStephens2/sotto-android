@@ -1,17 +1,48 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SPIKE-001: no permissions at all. Even the spike carries the no-network claim. -->
+<!-- Boundary 3 (constitution): NO INTERNET, NO ACCESS_NETWORK_STATE - the CI
+     guard fails the build if they appear. The permissions below are the
+     standard local media-app set; none moves data anywhere. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <application
-        android:label="Sotto Spike"
+        android:label="Sotto"
         android:icon="@android:drawable/ic_btn_speak_now"
-        android:theme="@android:style/Theme.Material.Light">
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
         <activity
-            android:name=".MainActivity"
-            android:exported="true">
+            android:name="page.stephens.sotto.shell.ui.SottoActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
         </activity>
+
+        <!-- The Phase 0/1 lab, kept reachable from the Library's menu. -->
+        <activity
+            android:name="page.stephens.sotto.spike.MainActivity"
+            android:exported="false"
+            android:label="Sotto Spike"
+            android:theme="@android:style/Theme.Material.Light" />
+
+        <service
+            android:name="page.stephens.sotto.shell.service.NarrationService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

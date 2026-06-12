@@ -20,12 +20,16 @@ jobs:
         run: tools/fetch-third-party.sh
       - name: Unit tests + assemble
         run: ./gradlew --no-daemon testDebugUnitTest assembleDebug
-      - name: Manifest guard - zero permissions (constitution boundary 3)
+      - name: Manifest guard - no network permissions (constitution boundary 3)
         run: |
           AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt | tail -1)
-          PERMS=$("$AAPT" dump permissions app/build/outputs/apk/debug/app-debug.apk | grep -c "uses-permission" || true)
-          echo "uses-permission count: $PERMS"
-          test "$PERMS" -eq 0 || { echo "FAIL: permissions crept into the manifest"; exit 1; }
+          "$AAPT" dump permissions app/build/outputs/apk/debug/app-debug.apk | tee /tmp/perms.txt
+          if grep -E "android.permission.(INTERNET|ACCESS_NETWORK_STATE)" /tmp/perms.txt; then
+            echo "FAIL: network permission in the local build"; exit 1
+          fi
+          ALLOWED="FOREGROUND_SERVICE|FOREGROUND_SERVICE_MEDIA_PLAYBACK|POST_NOTIFICATIONS|WAKE_LOCK"
+          EXTRA=$(grep "uses-permission" /tmp/perms.txt | grep -vE "$ALLOWED" || true)
+          [ -z "$EXTRA" ] || { echo "FAIL: unexpected permission(s): $EXTRA"; exit 1; }
       - name: Test report on failure
         if: failure()
         uses: actions/upload-artifact@v4

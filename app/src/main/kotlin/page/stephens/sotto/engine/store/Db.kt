@@ -60,6 +60,15 @@ interface OrationDao {
     @Query("SELECT * FROM orations ORDER BY createdAt DESC")
     fun all(): List<OrationEntity>
 
+    @Query("SELECT * FROM orations ORDER BY createdAt DESC")
+    fun allFlow(): kotlinx.coroutines.flow.Flow<List<OrationEntity>>
+
+    @Query("UPDATE orations SET chunksTotal = :total, updatedAt = :now WHERE id = :id")
+    fun setChunksTotal(id: String, total: Int, now: Long)
+
+    @Query("UPDATE orations SET playheadMs = :pos, updatedAt = :now WHERE id = :id")
+    fun setPlayhead(id: String, pos: Long, now: Long)
+
     @Insert
     fun insert(o: OrationEntity)
 
@@ -99,8 +108,16 @@ abstract class SottoDatabase : RoomDatabase() {
     abstract fun joblog(): JobLogDao
 
     companion object {
+        // Process-wide singleton: the activity's Flow collectors only see the
+        // service's writes if both use the same instance (Room invalidation is
+        // per-instance). Never closed; it lives as long as the process.
+        @Volatile private var instance: SottoDatabase? = null
         fun open(context: Context): SottoDatabase =
-            Room.databaseBuilder(context, SottoDatabase::class.java, "sotto.db").build()
+            instance ?: synchronized(this) {
+                instance ?: Room.databaseBuilder(
+                    context.applicationContext, SottoDatabase::class.java, "sotto.db",
+                ).build().also { instance = it }
+            }
     }
 }
 

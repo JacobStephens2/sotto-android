@@ -29,8 +29,7 @@ class GateRunner(private val context: Context) {
     }.getOrNull()
 
     fun reset() {
-        val db = SottoDatabase.open(context)
-        try { db.orations().delete("gate") } finally { db.close() }
+        SottoDatabase.open(context).orations().delete("gate")
         audioFile.delete()
     }
 
@@ -43,7 +42,7 @@ class GateRunner(private val context: Context) {
         val cleaned = TextPipeline.cleanMarkdown(text)
         val now = { System.currentTimeMillis() }
         val db = SottoDatabase.open(context)
-        try {
+        run {
             val dao = db.orations()
             val log = JobLog(db.joblog())
             val prior = dao.byId("gate")
@@ -86,8 +85,6 @@ class GateRunner(private val context: Context) {
                     }
                 }
             }
-        } finally {
-            db.close()
         }
     }
 }

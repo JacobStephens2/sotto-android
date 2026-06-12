@@ -3,19 +3,20 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose") version "2.0.21"
     id("com.google.devtools.ksp") version "2.0.21-1.0.28"
 }
 
 android {
-    namespace = "page.stephens.sotto.spike"
+    namespace = "page.stephens.sotto"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "page.stephens.sotto.spike"
+        applicationId = "page.stephens.sotto"   // the forever id (concept brief); the spike APKs had .spike and coexist
         minSdk = 29
         targetSdk = 34   // spike-only: avoids SDK-35 edge-to-edge insets work
-        versionCode = 5
-        versionName = "spike-003"
+        versionCode = 6
+        versionName = "0.2.0-slice"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -33,6 +34,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    buildFeatures { compose = true }
     // The Kokoro model assets are large; don't let AAPT try to compress them.
     androidResources { noCompress += listOf("onnx", "bin", "txt", "fst", "dict") }
 }
@@ -40,7 +42,16 @@ android {
 dependencies {
     implementation(files("libs/sherpa-onnx-1.13.2.aar"))
     implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-session:1.4.1")
+    val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
+    implementation(composeBom)
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
