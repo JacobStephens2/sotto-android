@@ -80,6 +80,13 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
 - [ ] End-to-end: narrate on phone → upload → play in desktop browser; narrate
       on web → download → play offline on phone
 
+## Phase 3 addenda
+
+- [x] In-app Write/paste entry (v0.3.2). Planning note: PRD S1 had it from the
+      start and the slice deferred it, but Phase 3's checklist never picked it
+      up - Jacob's request caught the dropped thread. Lesson: when a slice
+      defers an item, file it into a named phase immediately.
+
 ## Open questions
 
 - [x] ~~Ship `sync` flavor at 1.0 or as 1.1?~~ **Decided 2026-06-12: sync ships
