@@ -27,7 +27,7 @@ jobs:
           if grep -E "android.permission.(INTERNET|ACCESS_NETWORK_STATE)" /tmp/perms.txt; then
             echo "FAIL: network permission in the local build"; exit 1
           fi
-          ALLOWED="FOREGROUND_SERVICE|FOREGROUND_SERVICE_MEDIA_PLAYBACK|POST_NOTIFICATIONS|WAKE_LOCK"
+          ALLOWED="FOREGROUND_SERVICE|FOREGROUND_SERVICE_MEDIA_PLAYBACK|POST_NOTIFICATIONS|WAKE_LOCK|DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
           EXTRA=$(grep "uses-permission" /tmp/perms.txt | grep -vE "$ALLOWED" || true)
           [ -z "$EXTRA" ] || { echo "FAIL: unexpected permission(s): $EXTRA"; exit 1; }
       - name: Test report on failure
