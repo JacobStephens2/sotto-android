@@ -1,16 +1,26 @@
 package page.stephens.sotto.shell.ui
 
-// The vertical-slice UI (21-vertical-slice-plan.md): share text in -> Confirm
-// (derived, editable title; estimate; Narrate) -> Library list with live status.
-// Material 3, single activity. Out of slice: rename/delete/voice picker/speed/
-// sleep timer/queueing/About - they arrive in Phase 3.
+// Phase 3 surface (docs/03-roadmap.md): Library with detail actions (rename,
+// delete, source text, export via SAF), a Player screen over a MediaController
+// (speed, sleep timer, 15s skips, catching-up state), voice picker with bundled
+// previews, calibrated narration estimate, and About (provenance + job log).
+// Stock Material 3 throughout (41-design-system.md).
 
+import android.content.ComponentName
 import android.content.Intent
+import android.media.MediaPlayer
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,33 +28,67 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.withContext
+import page.stephens.sotto.engine.store.JobLog
+import page.stephens.sotto.engine.store.JobLogEntity
 import page.stephens.sotto.engine.store.OrationEntity
 import page.stephens.sotto.engine.store.SottoDatabase
 import page.stephens.sotto.engine.text.Titles
 import page.stephens.sotto.shell.service.NarrationService
 import java.io.File
 import java.util.UUID
+
+private val VOICES = listOf(
+    "af_heart" to "Heart · US female",
+    "af_bella" to "Bella · US female",
+    "af_nicole" to "Nicole · US female",
+    "am_adam" to "Adam · US male",
+    "am_michael" to "Michael · US male",
+    "bf_emma" to "Emma · UK female",
+    "bm_george" to "George · UK male",
+)
+
+private sealed class Screen {
+    data object Library : Screen()
+    data class Confirm(val text: String) : Screen()
+    data class Play(val id: String) : Screen()
+    data object About : Screen()
+}
 
 class SottoActivity : ComponentActivity() {
 
@@ -57,105 +101,365 @@ class SottoActivity : ComponentActivity() {
             intent.getStringExtra(Intent.EXTRA_TEXT) else null
         setContent {
             MaterialTheme {
-                var shared by remember { mutableStateOf(sharedIn) }
-                val text = shared
-                if (text != null) ConfirmScreen(text, onDone = { shared = null })
-                else LibraryScreen()
+                var screen by remember {
+                    mutableStateOf<Screen>(if (sharedIn != null) Screen.Confirm(sharedIn) else Screen.Library)
+                }
+                BackHandler(enabled = screen != Screen.Library) { screen = Screen.Library }
+                when (val s = screen) {
+                    is Screen.Library -> LibraryScreen(
+                        onOpen = { o -> openOration(o); screen = Screen.Play(o.id) },
+                        onAbout = { screen = Screen.About })
+                    is Screen.Confirm -> ConfirmScreen(s.text,
+                        onDone = { screen = Screen.Library })
+                    is Screen.Play -> PlayerScreen(s.id, onBack = { screen = Screen.Library })
+                    is Screen.About -> AboutScreen(onBack = { screen = Screen.Library })
+                }
             }
         }
     }
+
+    private fun svc(action: String, id: String? = null, minutes: Int? = null) =
+        startService(Intent(this, NarrationService::class.java).setAction(action).apply {
+            id?.let { putExtra(NarrationService.EXTRA_ID, it) }
+            minutes?.let { putExtra(NarrationService.EXTRA_MINUTES, it) }
+        })
+
+    private fun openOration(o: OrationEntity) = when (o.status) {
+        "QUEUED", "STOPPED", "ERROR" -> svc(NarrationService.ACTION_NARRATE, o.id)
+        else -> svc(NarrationService.ACTION_PLAY, o.id)
+    }
+
+    // ---------------------------------------------------------------- Confirm
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun ConfirmScreen(text: String, onDone: () -> Unit) {
         var title by remember { mutableStateOf(Titles.derive(text)) }
+        var voice by remember { mutableStateOf("af_heart") }
         val words = remember(text) { text.trim().split(Regex("\\s+")).size }
-        // Hardcoded device rate for the slice (~0.30 s/word measured by SPIKE-002);
-        // per-device calibration is Phase 3 (the server's calibrated_rates, local).
-        val estMin = (words * 0.30 / 60).coerceAtLeast(0.1)
+        // Calibrated rate: median of this device's completed orations, else the
+        // SPIKE-002 constant (the server's calibrated_rates logic, local).
+        val rate by produceState(0.30) {
+            value = withContext(Dispatchers.IO) {
+                val r = db.orations().completedRates().sorted()
+                if (r.isEmpty()) 0.30 else r[r.size / 2]
+            }
+        }
+        val estMin = (words * rate / 60).coerceAtLeast(1.0)
         Scaffold(topBar = { TopAppBar(title = { Text("New oration") }) }) { pad ->
-            Column(Modifier.padding(pad).padding(16.dp)) {
+            Column(Modifier.padding(pad).padding(16.dp).verticalScroll(rememberScrollState())) {
                 OutlinedTextField(value = title, onValueChange = { title = it.take(120) },
                     label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
-                Text("$words words · about ${"%.0f".format(estMin.coerceAtLeast(1.0))} min to narrate · voice af_heart",
+                Text("$words words · about ${"%.0f".format(estMin)} min to narrate",
                     style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(16.dp))
-                Button(onClick = { narrate(text, title.ifBlank { Titles.derive(text) }); onDone() },
+                Spacer(Modifier.height(12.dp))
+                Text("Voice", style = MaterialTheme.typography.labelLarge)
+                VOICES.forEach { (id, label) ->
+                    ListItem(
+                        headlineContent = { Text(label) },
+                        leadingContent = {
+                            FilterChip(selected = voice == id, onClick = { voice = id },
+                                label = { Text(if (voice == id) "chosen" else "choose") })
+                        },
+                        trailingContent = {
+                            TextButton(onClick = { playPreview(id) }) { Text("Hear") }
+                        },
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                Button(onClick = { narrate(text, title.ifBlank { Titles.derive(text) }, voice); onDone() },
                     modifier = Modifier.fillMaxWidth()) { Text("Narrate") }
                 TextButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
             }
         }
     }
 
-    private fun narrate(text: String, title: String) {
+    private var preview: MediaPlayer? = null
+    private fun playPreview(voiceId: String) {
+        preview?.release()
+        preview = MediaPlayer().apply {
+            assets.openFd("previews/$voiceId.mp3").use { fd ->
+                setDataSource(fd.fileDescriptor, fd.startOffset, fd.length)
+            }
+            prepare(); start()
+        }
+    }
+
+    private fun narrate(text: String, title: String, voice: String) {
         lifecycleScope.launch(Dispatchers.IO) {
             val id = UUID.randomUUID().toString()
             File(filesDir, "orations/$id").mkdirs()
             File(filesDir, "orations/$id/source.md").writeText(text)
             val now = System.currentTimeMillis()
             db.orations().insert(OrationEntity(
-                id = id, title = title, status = "QUEUED", voiceId = "af_heart",
+                id = id, title = title, status = "QUEUED", voiceId = voice,
                 words = text.trim().split(Regex("\\s+")).size, chunksTotal = null,
                 createdAt = now, updatedAt = now))
-            page.stephens.sotto.engine.store.JobLog(db.joblog()).log("created", title, id)
-            startService(Intent(this@SottoActivity, NarrationService::class.java)
-                .setAction(NarrationService.ACTION_NARRATE)
-                .putExtra(NarrationService.EXTRA_ID, id))
+            JobLog(db.joblog()).log("created", title, id, "voice=$voice")
+            svc(NarrationService.ACTION_NARRATE, id)
         }
     }
 
-    @OptIn(ExperimentalMaterial3Api::class)
+    // ---------------------------------------------------------------- Library
+
+    @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
     @Composable
-    private fun LibraryScreen() {
+    private fun LibraryScreen(onOpen: (OrationEntity) -> Unit, onAbout: () -> Unit) {
         val items by db.orations().allFlow().collectAsState(initial = emptyList())
+        var sheetFor by remember { mutableStateOf<OrationEntity?>(null) }
         Scaffold(topBar = {
             TopAppBar(title = { Text("Sotto") }, actions = {
+                TextButton(onClick = onAbout) { Text("About") }
                 TextButton(onClick = {
                     startActivity(Intent(this@SottoActivity, page.stephens.sotto.spike.MainActivity::class.java))
                 }) { Text("Lab") }
             })
         }) { pad ->
-            if (items.isEmpty()) {
-                Column(Modifier.padding(pad).padding(24.dp)) {
-                    Text("Share text to Sotto from any app to hear it narrated.",
-                        style = MaterialTheme.typography.bodyLarge)
-                }
+            if (items.isEmpty()) Column(Modifier.padding(pad).padding(24.dp)) {
+                Text("Share text to Sotto from any app to hear it narrated.",
+                    style = MaterialTheme.typography.bodyLarge)
             } else LazyColumn(Modifier.padding(pad).fillMaxSize()) {
                 items(items, key = { it.id }) { o ->
-                    OrationRow(o)
+                    ListItem(
+                        headlineContent = { Text(o.title) },
+                        supportingContent = {
+                            Column {
+                                Text(subtitleOf(o))
+                                if (o.status == "NARRATING" && (o.chunksTotal ?: 0) > 0)
+                                    LinearProgressIndicator(
+                                        progress = { o.chunksDone.toFloat() / o.chunksTotal!! },
+                                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                            }
+                        },
+                        modifier = Modifier.combinedClickable(
+                            onClick = { onOpen(o) },
+                            onLongClick = { sheetFor = o }),
+                    )
                     HorizontalDivider()
+                }
+            }
+        }
+        sheetFor?.let { o -> OrationSheet(o, onDismiss = { sheetFor = null }) }
+    }
+
+    private fun subtitleOf(o: OrationEntity) = when (o.status) {
+        "NARRATING" -> "Narrating · ${o.chunksDone} / ${o.chunksTotal ?: "?"}"
+        "QUEUED" -> "Queued" + if (o.chunksDone > 0) " · resumes from chunk ${o.chunksDone}" else ""
+        "STOPPED" -> "Stopped at ${o.chunksDone} / ${o.chunksTotal ?: "?"} · tap to resume"
+        "ERROR" -> "Failed: ${o.errorMessage ?: "unknown"} · tap to retry"
+        else -> "${fmtSecs(o.audioBytes * 8 / 64_000)} · ${o.words} words"
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun OrationSheet(o: OrationEntity, onDismiss: () -> Unit) {
+        var renaming by remember { mutableStateOf(false) }
+        var viewingSource by remember { mutableStateOf(false) }
+        val export = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("audio/aac")) { uri ->
+            if (uri != null) lifecycleScope.launch(Dispatchers.IO) {
+                contentResolver.openOutputStream(uri)?.use { out ->
+                    File(filesDir, "orations/${o.id}/audio.aac").inputStream().use { it.copyTo(out) }
+                }
+                JobLog(db.joblog()).log("exported", o.title, o.id)
+            }
+            onDismiss()
+        }
+        ModalBottomSheet(onDismissRequest = onDismiss) {
+            ListItem(headlineContent = { Text("Rename") },
+                modifier = Modifier.clickable { renaming = true })
+            ListItem(headlineContent = { Text("View source text") },
+                modifier = Modifier.clickable { viewingSource = true })
+            ListItem(headlineContent = { Text("Export audio") },
+                modifier = Modifier.clickable {
+                    export.launch(o.title.replace(Regex("[^A-Za-z0-9 _-]"), "").take(60) + ".aac")
+                })
+            ListItem(headlineContent = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                modifier = Modifier.clickable {
+                    svc(NarrationService.ACTION_DELETE, o.id); onDismiss()
+                })
+            Spacer(Modifier.height(24.dp))
+        }
+        if (renaming) {
+            var name by remember { mutableStateOf(o.title) }
+            AlertDialog(onDismissRequest = { renaming = false; onDismiss() },
+                title = { Text("Rename") },
+                text = { OutlinedTextField(value = name, onValueChange = { name = it.take(120) }, singleLine = true) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            db.orations().rename(o.id, name.trim().ifBlank { o.title }, System.currentTimeMillis())
+                            JobLog(db.joblog()).log("renamed", name, o.id)
+                        }
+                        renaming = false; onDismiss()
+                    }) { Text("Save") }
+                },
+                dismissButton = { TextButton(onClick = { renaming = false; onDismiss() }) { Text("Cancel") } })
+        }
+        if (viewingSource) {
+            val src by produceState("Loading...") {
+                value = withContext(Dispatchers.IO) {
+                    runCatching { File(filesDir, "orations/${o.id}/source.md").readText() }
+                        .getOrDefault("(source text unavailable)")
+                }
+            }
+            AlertDialog(onDismissRequest = { viewingSource = false; onDismiss() },
+                title = { Text(o.title) },
+                text = {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        Text(src, style = MaterialTheme.typography.bodySmall)
+                    }
+                },
+                confirmButton = { TextButton(onClick = { viewingSource = false; onDismiss() }) { Text("Close") } })
+        }
+    }
+
+    // ----------------------------------------------------------------- Player
+
+    @Composable
+    private fun rememberController(): MediaController? {
+        var controller by remember { mutableStateOf<MediaController?>(null) }
+        DisposableEffect(Unit) {
+            val future = MediaController.Builder(this@SottoActivity,
+                SessionToken(this@SottoActivity, ComponentName(this@SottoActivity, NarrationService::class.java)))
+                .buildAsync()
+            future.addListener({ controller = future.get() }, ContextCompat.getMainExecutor(this@SottoActivity))
+            onDispose { MediaController.releaseFuture(future) }
+        }
+        return controller
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    private fun PlayerScreen(id: String, onBack: () -> Unit) {
+        val row by db.orations().byIdFlow(id).collectAsState(initial = null)
+        val controller = rememberController()
+        var positionMs by remember { mutableStateOf(0L) }
+        var durationMs by remember { mutableStateOf(0L) }
+        var playing by remember { mutableStateOf(false) }
+        var ended by remember { mutableStateOf(false) }
+        var speed by remember { mutableStateOf(1.0f) }
+        var sleepLeft by remember { mutableStateOf<Int?>(null) }
+        LaunchedEffect(controller) {
+            while (true) {
+                controller?.let {
+                    if (it.currentMediaItem?.mediaId == id) {
+                        positionMs = it.currentPosition
+                        durationMs = it.duration.coerceAtLeast(0)
+                        playing = it.isPlaying
+                        ended = it.playbackState == Player.STATE_ENDED
+                        speed = it.playbackParameters.speed
+                    }
+                }
+                kotlinx.coroutines.delay(500)
+            }
+        }
+        val o = row ?: return
+        val catchingUp = ended && o.status == "NARRATING"
+        Scaffold(topBar = {
+            TopAppBar(title = { Text(o.title, maxLines = 1) },
+                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } })
+        }) { pad ->
+            Column(Modifier.padding(pad).padding(16.dp)) {
+                Text(when {
+                    catchingUp -> "Catching up - the narrator is just behind you..."
+                    o.status == "NARRATING" -> "Narrating · chunk ${o.chunksDone} / ${o.chunksTotal ?: "?"}"
+                    o.status == "STOPPED" -> "Stopped at chunk ${o.chunksDone} / ${o.chunksTotal ?: "?"}"
+                    else -> "${o.words} words"
+                }, style = MaterialTheme.typography.bodyMedium)
+                if (o.status == "NARRATING" && (o.chunksTotal ?: 0) > 0) {
+                    Spacer(Modifier.height(6.dp))
+                    LinearProgressIndicator(progress = { o.chunksDone.toFloat() / o.chunksTotal!! },
+                        modifier = Modifier.fillMaxWidth())
+                }
+                Spacer(Modifier.height(20.dp))
+                Slider(
+                    value = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f,
+                    onValueChange = { f -> controller?.seekTo((f * durationMs).toLong()) },
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(fmtSecs(positionMs / 1000)); Text(fmtSecs(durationMs / 1000))
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    Button(onClick = { controller?.seekTo((positionMs - 15_000).coerceAtLeast(0)) }) { Text("« 15s") }
+                    Button(onClick = {
+                        controller?.let { c ->
+                            if (c.currentMediaItem?.mediaId != id) svc(NarrationService.ACTION_PLAY, id)
+                            else if (playing) c.pause() else c.play()
+                        } ?: svc(NarrationService.ACTION_PLAY, id)
+                    }) { Text(if (playing) "Pause" else "Play") }
+                    Button(onClick = { controller?.seekTo(positionMs + 15_000) }) { Text("15s »") }
+                }
+                Spacer(Modifier.height(20.dp))
+                Text("Speed", style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(0.8f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { s ->
+                        FilterChip(selected = speed == s,
+                            onClick = { controller?.setPlaybackSpeed(s) },
+                            label = { Text("${s}x") })
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("Sleep timer", style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(15, 30, 60).forEach { m ->
+                        FilterChip(selected = sleepLeft == m,
+                            onClick = {
+                                val next = if (sleepLeft == m) 0 else m
+                                sleepLeft = if (next == 0) null else next
+                                svc(NarrationService.ACTION_SLEEP_TIMER, minutes = next)
+                            },
+                            label = { Text("$m min") })
+                    }
+                }
+                if (o.status == "NARRATING") {
+                    Spacer(Modifier.height(20.dp))
+                    TextButton(onClick = { svc(NarrationService.ACTION_STOP_NARRATION) }) {
+                        Text("Stop narrating (keeps what's done)")
+                    }
                 }
             }
         }
     }
 
+    // ------------------------------------------------------------------ About
+
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    private fun OrationRow(o: OrationEntity) {
-        val subtitle = when (o.status) {
-            "NARRATING" -> "Narrating · ${o.chunksDone} / ${o.chunksTotal ?: "?"} chunks"
-            "QUEUED" -> "Queued" + if (o.chunksDone > 0) " · will resume from chunk ${o.chunksDone}" else ""
-            "STOPPED" -> "Stopped at ${o.chunksDone} / ${o.chunksTotal ?: "?"} · tap to resume"
-            "ERROR" -> "Failed: ${o.errorMessage ?: "unknown"} · tap to retry"
-            else -> "${fmtLen(o.audioBytes)} · ${o.words} words"
+    private fun AboutScreen(onBack: () -> Unit) {
+        val log by produceState(emptyList<JobLogEntity>()) {
+            value = withContext(Dispatchers.IO) { db.joblog().recent(200) }
         }
-        ListItem(
-            headlineContent = { Text(o.title) },
-            supportingContent = { Text(subtitle) },
-            modifier = Modifier.clickable {
-                val action = when (o.status) {
-                    "QUEUED", "STOPPED", "ERROR" -> NarrationService.ACTION_NARRATE  // (re)start; playback auto-follows
-                    else -> NarrationService.ACTION_PLAY
+        Scaffold(topBar = {
+            TopAppBar(title = { Text("About Sotto") },
+                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } })
+        }) { pad ->
+            LazyColumn(Modifier.padding(pad).padding(16.dp)) {
+                item {
+                    Text(
+                        "Sotto narrates documents entirely on this device. The voice is " +
+                        "synthetic, produced by Kokoro-82M - an openly licensed (Apache-2.0) " +
+                        "model trained on documented public-domain and permissively licensed " +
+                        "audio. Nothing you share with Sotto leaves the phone: this build " +
+                        "holds no INTERNET permission, which anyone can verify with " +
+                        "`aapt dump permissions` on the APK.\n",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Text("Activity log (stays on this device)",
+                        style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(8.dp))
                 }
-                startService(Intent(this@SottoActivity, NarrationService::class.java)
-                    .setAction(action).putExtra(NarrationService.EXTRA_ID, o.id))
-            },
-        )
+                items(log) { e ->
+                    Text("${java.text.SimpleDateFormat("MM-dd HH:mm").format(java.util.Date(e.at))}  " +
+                        "${e.event}  ${e.title}${if (e.detail.isNotEmpty()) " · ${e.detail}" else ""}",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
     }
 
-    private fun fmtLen(bytes: Long): String {
-        val secs = bytes * 8 / 64_000   // ADTS at 64 kbps
-        return if (secs >= 3600) "%d h %d min".format(secs / 3600, (secs % 3600) / 60)
-        else if (secs >= 60) "%d min".format(secs / 60) else "${secs}s"
-    }
+    private fun fmtSecs(secs: Long): String =
+        if (secs >= 3600) "%d h %d min".format(secs / 3600, (secs % 3600) / 60)
+        else if (secs >= 60) "%d:%02d".format(secs / 60, secs % 60) else "0:%02d".format(secs)
 }

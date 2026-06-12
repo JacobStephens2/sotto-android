@@ -66,14 +66,15 @@ class SherpaSynthesizer(
     }
 
     companion object {
-        // kokoro-multi-lang-v1_0 speaker order (sherpa-onnx packaging). Confirm by
-        // ear before Phase 3's voice previews ship; RTF work is sid-agnostic.
+        // Authoritative ids from sherpa-onnx scripts/kokoro/v1.0/generate_voices_bin.py
+        // (the script that builds voices.bin): af_heart=3, not the 0 we guessed -
+        // sid 0 is af_alloy, which is what early builds actually spoke with.
         val DEFAULT_SIDS: (String) -> Int = { voiceId ->
             mapOf(
-                "af_heart" to 0, "af_bella" to 2, "af_nicole" to 6,
+                "af_heart" to 3, "af_bella" to 2, "af_nicole" to 6,
                 "am_adam" to 11, "am_michael" to 16,
-                "bf_emma" to 19, "bm_george" to 24,
-            )[voiceId] ?: 0
+                "bf_emma" to 21, "bm_george" to 26,
+            )[voiceId] ?: 3
         }
     }
 }

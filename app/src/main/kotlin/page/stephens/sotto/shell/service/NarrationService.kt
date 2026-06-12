@@ -60,7 +60,10 @@ class NarrationService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
         session = MediaSession.Builder(this, player).build()
-        scope.launch { db.orations().requeueInterrupted(System.currentTimeMillis()) }
+        scope.launch {
+            db.orations().requeueInterrupted(System.currentTimeMillis())
+            pickupQueue()   // PRD S4: interrupted/queued narration resumes on its own
+        }
         scope.launch { governor() }
     }
 
@@ -71,6 +74,8 @@ class NarrationService : MediaSessionService() {
             ACTION_NARRATE -> intent.getStringExtra(EXTRA_ID)?.let { startNarration(it) }
             ACTION_PLAY -> intent.getStringExtra(EXTRA_ID)?.let { id -> scope.launch { startPlayback(id) } }
             ACTION_STOP_NARRATION -> narratingId.set(null)   // engine sees shouldStop at next chunk
+            ACTION_SLEEP_TIMER -> setSleepTimer(intent.getIntExtra(EXTRA_MINUTES, 0))
+            ACTION_DELETE -> intent.getStringExtra(EXTRA_ID)?.let { id -> scope.launch { deleteOration(id) } }
         }
         super.onStartCommand(intent, flags, startId)
         return START_NOT_STICKY
@@ -122,6 +127,7 @@ class NarrationService : MediaSessionService() {
                 log.log("error", row.title, id, t.toString().take(160))
             } finally {
                 narratingId.compareAndSet(id, null)
+                pickupQueue()   // FIFO: queued orations narrate one after another
             }
         }
         // Listen-now: start playback as soon as the first chunk is durable.
@@ -130,6 +136,37 @@ class NarrationService : MediaSessionService() {
             while (narratingId.get() == id && f.length() == 0L) delay(250)
             if (f.length() > 0L && playingId == null) startPlayback(id)
         }
+    }
+
+    private fun pickupQueue() {
+        if (narratingId.get() != null) return
+        scope.launch {
+            db.orations().nextQueued()?.let { startNarration(it.id) }
+        }
+    }
+
+    private var sleepJob: kotlinx.coroutines.Job? = null
+    private fun setSleepTimer(minutes: Int) {
+        sleepJob?.cancel(); sleepJob = null
+        if (minutes <= 0) return
+        sleepJob = scope.launch {
+            delay(minutes * 60_000L)
+            withContext(Dispatchers.Main) { player.pause() }
+            JobLog(db.joblog()).log("sleep-timer", "paused after $minutes min")
+        }
+    }
+
+    /** Deletion is real deletion (constitution boundary 7) and lives here so the
+     *  one process owner can stop narration/playback before removing files. */
+    private suspend fun deleteOration(id: String) {
+        if (narratingId.get() == id) narratingId.set(null)
+        withContext(Dispatchers.Main) {
+            if (playingId == id) { playingId = null; player.stop(); player.clearMediaItems() }
+        }
+        val row = db.orations().byId(id)
+        db.orations().delete(id)
+        File(filesDir, "orations/$id").deleteRecursively()
+        JobLog(db.joblog()).log("deleted", row?.title ?: id, id)
     }
 
     private suspend fun startPlayback(id: String) {
@@ -193,6 +230,9 @@ class NarrationService : MediaSessionService() {
         const val ACTION_NARRATE = "page.stephens.sotto.NARRATE"
         const val ACTION_PLAY = "page.stephens.sotto.PLAY"
         const val ACTION_STOP_NARRATION = "page.stephens.sotto.STOP_NARRATION"
+        const val ACTION_SLEEP_TIMER = "page.stephens.sotto.SLEEP_TIMER"
+        const val ACTION_DELETE = "page.stephens.sotto.DELETE"
         const val EXTRA_ID = "orationId"
+        const val EXTRA_MINUTES = "minutes"
     }
 }

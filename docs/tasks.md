@@ -41,10 +41,14 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
 
 ## Phase 3 - v1 surface
 
-- [ ] Library detail / rename / delete / source view
-- [ ] Speed, sleep timer, position memory polish
-- [ ] Voice picker with previews; estimator calibration
-- [ ] About: provenance text, no-network claim + verification command, job log
+- [x] Library long-press sheet: rename / delete (service-owned, real deletion) /
+      source view / export via SAF - 2026-06-12
+- [x] Player screen over MediaController: seek slider, 15s skips, speed chips
+      (0.8-2x), sleep timer (15/30/60, service-side), catching-up state - 2026-06-12
+- [x] Voice picker w/ bundled previews + AUTHORITATIVE sid map (from sherpa's
+      generate_voices_bin.py - af_heart=3; early builds spoke af_alloy=0);
+      calibrated estimate (median of completed orations) - 2026-06-12
+- [x] About: provenance + no-network claim + on-device activity log - 2026-06-12
 - [ ] PRD edge cases: storage-full, thermal catch-up, queueing, encoding
 
 ## Phase 4 - release 1.0

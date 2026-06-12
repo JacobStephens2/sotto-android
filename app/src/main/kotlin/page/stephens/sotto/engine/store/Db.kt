@@ -69,6 +69,20 @@ interface OrationDao {
     @Query("UPDATE orations SET playheadMs = :pos, updatedAt = :now WHERE id = :id")
     fun setPlayhead(id: String, pos: Long, now: Long)
 
+    @Query("SELECT * FROM orations WHERE id = :id")
+    fun byIdFlow(id: String): kotlinx.coroutines.flow.Flow<OrationEntity?>
+
+    @Query("SELECT * FROM orations WHERE status = 'QUEUED' ORDER BY createdAt ASC LIMIT 1")
+    fun nextQueued(): OrationEntity?
+
+    @Query("UPDATE orations SET title = :title, updatedAt = :now WHERE id = :id")
+    fun rename(id: String, title: String, now: Long)
+
+    // Per-device seconds-per-word samples for the calibrated estimate
+    // (the server's calibrated_rates, local; median taken in Kotlin).
+    @Query("SELECT narratedMs * 1.0 / 1000 / words FROM orations WHERE status = 'COMPLETE' AND words >= 50 AND narratedMs > 0")
+    fun completedRates(): List<Double>
+
     @Insert
     fun insert(o: OrationEntity)
 
