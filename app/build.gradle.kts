@@ -20,6 +20,24 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // ADR-007: one codebase, two artifacts. `local` is the flagship no-network
+    // claim; `sync` (Phase 5) adds opt-in server-library sync and INTERNET only.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("local") { dimension = "distribution"; isDefault = true }
+        create("sync") { dimension = "distribution" }
+    }
+
+    // Release signing comes from the environment (CI secrets / local keystore);
+    // absent env -> unsigned release, which only the dry-run cares about.
+    val ksPath = System.getenv("SOTTO_KEYSTORE")
+    if (ksPath != null) signingConfigs.create("release") {
+        storeFile = file(ksPath)
+        storePassword = System.getenv("SOTTO_KEYSTORE_PASS")
+        keyAlias = System.getenv("SOTTO_KEY_ALIAS") ?: "sotto"
+        keyPassword = System.getenv("SOTTO_KEY_PASS") ?: System.getenv("SOTTO_KEYSTORE_PASS")
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false
@@ -27,6 +45,14 @@ android {
         }
         release {
             ndk { abiFilters += "arm64-v8a" }   // ADR-005: release perf claims are arm64-only
+            if (ksPath != null) signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
+    applicationVariants.all {
+        outputs.all {
+            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
+                "sotto-${flavorName}-${versionName}-${buildType.name}.apk"
         }
     }
     compileOptions {

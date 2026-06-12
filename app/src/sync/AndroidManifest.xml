@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The sync flavor's one addition (ADR-007): INTERNET, for the user's own
+     Sotto server and nothing else. ACCESS_NETWORK_STATE stays stripped. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>

@@ -35,8 +35,9 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
       (session live with title/artist on emulator) - 2026-06-12
 - [x] Playhead governor: 2s loop persists playhead + re-resolves the growing
       ADTS file on STATE_ENDED while narrating - 2026-06-12 (device validation pending)
-- [x] ci.yml live and green (tests, assemble, zero-permission manifest guard,
-      third-party cache) - 2026-06-12. Remaining: release.yml dry run
+- [x] ci.yml flavor-aware (both flavors, per-flavor guards); release.yml
+      tag-triggered signed dual-flavor release w/ aapt proof in notes - dry run
+      via v0.3.1 tag 2026-06-12
 - [ ] One week of daily real use - exit gate
 
 ## Phase 3 - v1 surface
@@ -53,10 +54,15 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
 
 ## Phase 4 - release 1.0
 
-- [ ] Keystore (strong password), CI secrets, signed release pipeline
-- [ ] README with boundary story + aapt verification; privacy page
-- [ ] License attributions incl. espeak-ng GPL linkage review
-      (32-compliance-checklist.md)
+- [x] Keystore: 4096-bit RSA, 32-char random password, SOPS/age-encrypted
+      backup at ~/.config/sotto/release-signing.env.sops (verified by decrypt
+      BEFORE plaintext removal), CI secrets pushed; signing via SOTTO_* env -
+      2026-06-12
+- [x] README (claim + verification command + flavor table), PRIVACY.md,
+      adaptive launcher icon from the brand mark - 2026-06-12
+- [x] License DECIDED: GPL-3.0 (espeak-ng inside sherpa-onnx is GPL-3.0, so
+      the combined work is copyleft regardless; matches app-repo conventions).
+      LICENSE + ATTRIBUTIONS.md committed - 2026-06-12
 - [ ] Publish `local` + `sync` artifacts together - GitHub release (decided:
       sync is in 1.0, so Phase 5 completes first)
 

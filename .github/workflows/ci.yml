@@ -18,18 +18,23 @@ jobs:
           key: thirdparty-sherpa1.13.2-kokoro-int8-v1_0
       - name: Fetch and stage third-party (AAR + model)
         run: tools/fetch-third-party.sh
-      - name: Unit tests + assemble
-        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug
-      - name: Manifest guard - no network permissions (constitution boundary 3)
+      - name: Unit tests + assemble both flavors
+        run: ./gradlew --no-daemon testLocalDebugUnitTest assembleLocalDebug assembleSyncDebug
+      - name: Manifest guards (constitution boundary 3, per flavor)
         run: |
           AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt | tail -1)
-          "$AAPT" dump permissions app/build/outputs/apk/debug/app-debug.apk | tee /tmp/perms.txt
-          if grep -E "android.permission.(INTERNET|ACCESS_NETWORK_STATE)" /tmp/perms.txt; then
-            echo "FAIL: network permission in the local build"; exit 1
-          fi
           ALLOWED="FOREGROUND_SERVICE|FOREGROUND_SERVICE_MEDIA_PLAYBACK|POST_NOTIFICATIONS|WAKE_LOCK|DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
-          EXTRA=$(grep "uses-permission" /tmp/perms.txt | grep -vE "$ALLOWED" || true)
-          [ -z "$EXTRA" ] || { echo "FAIL: unexpected permission(s): $EXTRA"; exit 1; }
+          LOCAL_APK=$(ls app/build/outputs/apk/local/debug/*.apk)
+          SYNC_APK=$(ls app/build/outputs/apk/sync/debug/*.apk)
+          echo "== local =="; "$AAPT" dump permissions "$LOCAL_APK" | tee /tmp/local.txt
+          grep -E "android.permission.(INTERNET|ACCESS_NETWORK_STATE)" /tmp/local.txt && { echo "FAIL: network permission in local"; exit 1; }
+          EXTRA=$(grep "uses-permission" /tmp/local.txt | grep -vE "$ALLOWED" || true)
+          [ -z "$EXTRA" ] || { echo "FAIL local: unexpected $EXTRA"; exit 1; }
+          echo "== sync =="; "$AAPT" dump permissions "$SYNC_APK" | tee /tmp/sync.txt
+          grep -q "android.permission.INTERNET" /tmp/sync.txt || { echo "FAIL: sync flavor must hold INTERNET"; exit 1; }
+          grep "android.permission.ACCESS_NETWORK_STATE" /tmp/sync.txt && { echo "FAIL: ACCESS_NETWORK_STATE in sync"; exit 1; }
+          EXTRA=$(grep "uses-permission" /tmp/sync.txt | grep -vE "$ALLOWED|android.permission.INTERNET" || true)
+          [ -z "$EXTRA" ] || { echo "FAIL sync: unexpected $EXTRA"; exit 1; }
       - name: Test report on failure
         if: failure()
         uses: actions/upload-artifact@v4
