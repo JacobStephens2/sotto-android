@@ -13,7 +13,15 @@ object TextPipeline {
 
     const val KOKORO_CHUNK_LIMIT = 1000
 
-    private fun p(re: String): Pattern = Pattern.compile(re, Pattern.UNICODE_CHARACTER_CLASS)
+    private fun p(re: String): Pattern = try {
+        Pattern.compile(re, Pattern.UNICODE_CHARACTER_CLASS)
+    } catch (e: IllegalArgumentException) {
+        // Android's ICU regex rejects the flag because its \w and \b are already
+        // Unicode-aware (the flag's behavior is the platform default there).
+        // Desktop JVM needs the flag for Python re parity - the vector tests run
+        // there and pin it.
+        Pattern.compile(re)
+    }
     private fun String.sub(pat: Pattern, repl: String): String = pat.matcher(this).replaceAll(repl)
 
     private val FENCE_OR_RULE = p("^\\s*(---+|```)\\s*$")
