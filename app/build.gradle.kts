@@ -14,8 +14,8 @@ android {
         applicationId = "page.stephens.sotto.spike"
         minSdk = 29
         targetSdk = 34   // spike-only: avoids SDK-35 edge-to-edge insets work
-        versionCode = 4
-        versionName = "spike-002"
+        versionCode = 5
+        versionName = "spike-003"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

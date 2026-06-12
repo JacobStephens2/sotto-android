@@ -12,8 +12,9 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
       synthesize fixed 2,000-word text to PCM on-device
 - [x] Measured on device (2026-06-12): sustained RTF 1.06x/30.7min, 19.5%/hr,
       thermal NONE, peak PSS 793-1080MB, APK 203MB - see `_state.md`
-- [ ] Decide audio container (M4A/AAC vs MP3) from spike data
-      (10-architecture-overview.md "Audio format decision")
+- [x] Audio container DECIDED: ADTS AAC via MediaCodec (appendable,
+      frame-boundary truncatable, ExoPlayer-native, deterministic per-chunk
+      with a fresh codec) - AdtsAacEncoder, instrumented-tested 2026-06-12
 - [x] Gate decision recorded in `_state.md`: **PASS - proceed** (2026-06-12)
 
 ## Phase 1 - engine

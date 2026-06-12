@@ -1,6 +1,6 @@
 # _state.md - sotto-android session handoff
 
-Phase: **Phase 1 nearly complete (2026-06-12): TextPipeline, NarrationEngine, Room store, FileAudioSink, SherpaSynthesizer wiring, instrumented resume test, CI green.** Remaining for the Phase 1 gate: end-to-end encyclical narration on-device with real model + forced process kill. Then Phase 2 (vertical slice).
+Phase: **Phase 1 nearly complete (2026-06-12): TextPipeline, NarrationEngine, Room store, FileAudioSink, SherpaSynthesizer wiring, instrumented resume test, CI green.** Phase 1 gate harness shipped in spike-003: 'Phase 1 gate' button narrates the bundled encyclical through the real stack (Sherpa -> ADTS -> Room -> sink); 'Kill process' + re-tap proves resume on hardware. Awaiting Jacob's run. Then Phase 2 (vertical slice).
 Updated: 2026-06-12
 
 ## Decisions snapshot
@@ -38,8 +38,9 @@ Open items carried into Phase 1:
   confirming ADR-002's int8 choice.
 - Optional: 30-min sweep at threads=2/3 for the battery/throttle tradeoff
   (19.5%/hr at 4T exceeds the PRD's ≤15%/hr synth+play ambition).
-- Audio container decision (M4A/AAC vs MP3) still pending - encoder A/B was not
-  part of the spike runs.
+- Audio container DECIDED 2026-06-12: ADTS AAC (AdtsAacEncoder; appendable +
+  truncatable at chunk boundaries + deterministic, preserving byte-identical
+  resume; verified on the Android runtime in RealPipelineTest).
 
 Reference points from the server (not phone numbers): VPS 4-core EPYC ≈ 1.4x
 RTF, 0.26 s/word; council research cites puff-dayo/Kokoro-82M-Android as

@@ -62,11 +62,49 @@ class MainActivity : Activity() {
         val btnStop = Button(this).apply { text = "Stop"; setOnClickListener { generation.incrementAndGet(); line("stop requested") } }
         val btnPlay = Button(this).apply { text = "Play last chunk"; setOnClickListener { playLast() } }
         btnThreads = Button(this).apply { text = "Threads: $threads (tap to change)"; setOnClickListener { cycleThreads() } }
+        val gate = page.stephens.sotto.shell.gate.GateRunner(this)
+        val btnGate = Button(this).apply {
+            text = "Phase 1 gate (narrate doc; long-press resets)"
+            setOnClickListener {
+                val txt = gate.gateTextOrNull()
+                if (txt == null) { line("no gate text bundled (assets/gate/encyclical.md)"); return@setOnClickListener }
+                val run = generation.incrementAndGet()
+                line("[gate run $run] queued, threads=$threads")
+                exec.submit {
+                    // The gate loads its own model; free the spike's copy first
+                    // so two ~1GB sessions never coexist. Threads button reloads.
+                    tts?.let { it.release(); tts = null; line("spike model released for gate") }
+                    try {
+                        val verdict = gate.run(txt, threads, shouldStop = { generation.get() != run },
+                            onStatus = { msg -> ui { status.text = "[gate] $msg · thermal ${thermal()} · batt ${batteryPct()}%" } })
+                        line("[gate run $run] $verdict"); android.util.Log.i("SPIKE", verdict)
+                    } catch (t: Throwable) { line("[gate run $run] ERROR: $t") }
+                }
+            }
+            setOnLongClickListener { generation.incrementAndGet(); exec.submit { gate.reset(); line("gate reset") }; true }
+        }
+        val btnKill = Button(this).apply {
+            text = "Kill process (test resume)"
+            setOnClickListener { android.os.Process.killProcess(android.os.Process.myPid()) }
+        }
+        val btnPlayGate = Button(this).apply {
+            text = "Play gate audio"
+            setOnClickListener {
+                if (!gate.audioFile.exists()) { line("no gate audio yet"); return@setOnClickListener }
+                runCatching {
+                    android.media.MediaPlayer().apply {
+                        setDataSource(gate.audioFile.absolutePath); prepare(); start()
+                        line("playing gate audio (${gate.audioFile.length() / 1048576}MB)")
+                    }
+                }.onFailure { line("play failed: $it") }
+            }
+        }
         val buttons = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 0, 24, 0)
             addView(full(btnOnce)); addView(full(btnSustained)); addView(full(btnStop))
             addView(full(btnPlay)); addView(full(btnThreads))
+            addView(full(btnGate)); addView(full(btnKill)); addView(full(btnPlayGate))
         }
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
