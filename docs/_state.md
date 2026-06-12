@@ -1,6 +1,6 @@
 # _state.md - sotto-android session handoff
 
-Phase: **Phase 0 PASSED (2026-06-12); Phase 1 engine in progress (TextPipeline + NarrationEngine core done)**
+Phase: **Phase 1 nearly complete (2026-06-12): TextPipeline, NarrationEngine, Room store, FileAudioSink, SherpaSynthesizer wiring, instrumented resume test, CI green.** Remaining for the Phase 1 gate: end-to-end encyclical narration on-device with real model + forced process kill. Then Phase 2 (vertical slice).
 Updated: 2026-06-12
 
 ## Decisions snapshot

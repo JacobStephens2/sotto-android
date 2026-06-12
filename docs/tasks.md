@@ -21,17 +21,18 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
 - [x] **Server repo:** `tools/generate_pipeline_vectors.py` + 24-case
       pipeline-vectors.json committed (sha256 7566642d...) - 2026-06-12
 - [x] Port cleanMarkdown + chunk - all 24 vectors green on JVM (engine/text/TextPipeline.kt) - 2026-06-12
-- [ ] Room schema per 11-data-model.md; migrations baseline
-- [ ] NarrationEngine with per-chunk durability + resume; kill-test
-      byte-identity
-- [ ] Job log writer + coverage assertions
+- [x] Room schema per 11-data-model.md (v1 baseline, exportSchema) - 2026-06-12
+- [x] NarrationEngine durability/resume + instrumented kill-test (DB-reopen +
+      crash-garbage, byte-identical, on emulator) - 2026-06-12
+- [x] Job log writer + coverage assertions (in RoomResumeTest) - 2026-06-12
 
 ## Phase 2 - vertical slice (21-vertical-slice-plan.md)
 
 - [ ] Share-intent → Confirm → narrate-while-listening → library row
 - [ ] NarrationService + MediaSession + single notification
 - [ ] Playhead governor ("catching up")
-- [ ] CI: ci.yml (lint, tests, manifest guards, debug APK) + release.yml dry run
+- [x] ci.yml live and green (tests, assemble, zero-permission manifest guard,
+      third-party cache) - 2026-06-12. Remaining: release.yml dry run
 - [ ] One week of daily real use - exit gate
 
 ## Phase 3 - v1 surface
