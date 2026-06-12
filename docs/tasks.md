@@ -10,11 +10,11 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
       2026-06-12; server copy is non-canonical) - server-README pointer pending
 - [ ] Bare spike app: sherpa-onnx dependency, bundled Kokoro int8 + voices,
       synthesize fixed 2,000-word text to PCM on-device
-- [ ] Measure on the floor device: RTF, battery %/hr, thermals 30 min, peak
-      RSS, APK size; record all in `_state.md`
+- [x] Measured on device (2026-06-12): sustained RTF 1.06x/30.7min, 19.5%/hr,
+      thermal NONE, peak PSS 793-1080MB, APK 203MB - see `_state.md`
 - [ ] Decide audio container (M4A/AAC vs MP3) from spike data
       (10-architecture-overview.md "Audio format decision")
-- [ ] Gate decision recorded in `_state.md`: proceed / reconsider
+- [x] Gate decision recorded in `_state.md`: **PASS - proceed** (2026-06-12)
 
 ## Phase 1 - engine
 
