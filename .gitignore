@@ -1,0 +1,6 @@
+.gradle/
+build/
+local.properties
+*.keystore
+# model weights are fetched by tooling, never committed
+app/src/main/assets/models/
