@@ -7,3 +7,4 @@ app/src/main/assets/models/
 third_party/
 app/libs/*.aar
 app/src/main/assets/gate/
+app/src/precision/*/models/

@@ -9,6 +9,11 @@ plugins {
 
 android {
     namespace = "page.stephens.sotto"
+
+    // A/B experiment toggle (-Pfp32): the full-precision model as a SEPARATE
+    // coexisting app, so int8 and fp32 can be compared by ear on one phone.
+    // Off by default, so CI and releases stay int8 and untouched.
+    val fp32 = project.hasProperty("fp32")
     compileSdk = 35
 
     defaultConfig {
@@ -18,6 +23,12 @@ android {
         versionCode = 10
         versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "MODEL_ASSET",
+            if (fp32) "\"models/model.fp32.onnx\"" else "\"models/model.int8.onnx\"")
+        if (fp32) {
+            applicationIdSuffix = ".fp32"
+            versionNameSuffix = "-fp32"
+        }
     }
 
     // ADR-007: one codebase, two artifacts. `local` is the flagship no-network
@@ -49,6 +60,8 @@ android {
         }
     }
 
+    sourceSets.getByName("main").assets.srcDir(if (fp32) "src/precision/fp32" else "src/precision/int8")
+
     applicationVariants.all {
         outputs.all {
             (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
@@ -60,7 +73,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     // The Kokoro model assets are large; don't let AAPT try to compress them.
     androidResources { noCompress += listOf("onnx", "bin", "txt", "fst", "dict") }
 }

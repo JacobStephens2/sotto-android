@@ -125,7 +125,7 @@ class MainActivity : Activity() {
         val cfg = OfflineTtsConfig(
             model = OfflineTtsModelConfig(
                 kokoro = OfflineTtsKokoroModelConfig(
-                    model = "models/model.int8.onnx",
+                    model = page.stephens.sotto.BuildConfig.MODEL_ASSET,
                     voices = "models/voices.bin",
                     tokens = "models/tokens.txt",
                     dataDir = copyAssetDir("models/espeak-ng-data"),
