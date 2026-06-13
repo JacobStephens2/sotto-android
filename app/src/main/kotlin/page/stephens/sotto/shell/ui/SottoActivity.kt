@@ -488,6 +488,21 @@ class SottoActivity : ComponentActivity() {
                         Text("Stop narrating (keeps what's done)")
                     }
                 }
+                // Read-along: the source is written in full at creation, so the
+                // whole text is readable here even while it's still synthesizing.
+                val source by produceState("", id, o.downloaded) {
+                    value = withContext(Dispatchers.IO) {
+                        runCatching { File(filesDir, "orations/$id/source.md").readText() }.getOrDefault("")
+                    }
+                }
+                if (source.isNotBlank()) {
+                    Spacer(Modifier.height(16.dp))
+                    HorizontalDivider()
+                    Text("Text", style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+                    Text(source, style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()))
+                }
             }
         }
     }

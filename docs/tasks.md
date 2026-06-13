@@ -81,6 +81,11 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
 
 ## Phase 3 addenda
 
+- [x] fp32 A/B: ear-verdict **fp32 wins** (the int8 "ring" is gone). v0.4.x
+      open decision: make fp32 the default if it stays >=1x RTF on-device.
+- [x] Read-along: the Player screen shows the full source text (scrollable),
+      readable while the oration is still synthesizing (v0.4.1).
+
 - [x] In-app Write/paste entry (v0.3.2). Planning note: PRD S1 had it from the
       start and the slice deferred it, but Phase 3's checklist never picked it
       up - Jacob's request caught the dropped thread. Lesson: when a slice
