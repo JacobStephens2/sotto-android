@@ -93,10 +93,20 @@ private class RealSync(private val context: Context) : SyncProvider {
         withContext(Dispatchers.IO) {
             val name = o.serverName ?: error("not a server entry")
             val dir = File(context.filesDir, "orations/${o.id}")
-            api().downloadAudio(name, File(dir, "audio.aac"))
-            api().downloadText(name, File(dir, "source.md"))
-            db.orations().setDownloaded(o.id, File(dir, "audio.aac").length(), System.currentTimeMillis())
-            JobLog(db.joblog()).log("downloaded", o.title, o.id, name)
+            val total = o.audioBytes.coerceAtLeast(1L)
+            DownloadProgress.set(o.id, 0)
+            try {
+                var last = -1
+                api().downloadAudio(name, File(dir, "audio.aac")) { read ->
+                    val pct = (read * 100 / total).toInt()
+                    if (pct != last) { last = pct; DownloadProgress.set(o.id, pct) }
+                }
+                api().downloadText(name, File(dir, "source.md"))
+                db.orations().setDownloaded(o.id, File(dir, "audio.aac").length(), System.currentTimeMillis())
+                JobLog(db.joblog()).log("downloaded", o.title, o.id, name)
+            } finally {
+                DownloadProgress.clear(o.id)
+            }
         }
     }
 

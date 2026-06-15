@@ -46,7 +46,8 @@ class SottoApi(private val baseUrl: String, private val token: String? = null) {
         }
     }
 
-    fun downloadAudio(name: String, dest: File) = downloadTo("/api/v1/library/$name/audio", dest)
+    fun downloadAudio(name: String, dest: File, onBytes: ((Long) -> Unit)? = null) =
+        downloadTo("/api/v1/library/$name/audio", dest, onBytes)
 
     /** Returns false on 404 (no source text on the server). */
     fun downloadText(name: String, dest: File): Boolean = try {
@@ -111,14 +112,25 @@ class SottoApi(private val baseUrl: String, private val token: String? = null) {
         return conn.inputStream.use { it.readBytes().decodeToString() }
     }
 
-    private fun downloadTo(path: String, dest: File) {
+    private fun downloadTo(path: String, dest: File, onBytes: ((Long) -> Unit)? = null) {
         val conn = open("GET", path)
         val code = conn.responseCode
         if (code !in 200..299) throw ApiException(code, "")
         dest.parentFile?.mkdirs()
+        val tmp = File(dest.path + ".tmp")
         conn.inputStream.use { ins: InputStream ->
-            File(dest.path + ".tmp").outputStream().use { ins.copyTo(it) }
+            tmp.outputStream().use { out ->
+                val buf = ByteArray(64 * 1024)
+                var total = 0L
+                while (true) {
+                    val n = ins.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    total += n
+                    onBytes?.invoke(total)
+                }
+            }
         }
-        File(dest.path + ".tmp").renameTo(dest)
+        tmp.renameTo(dest)
     }
 }

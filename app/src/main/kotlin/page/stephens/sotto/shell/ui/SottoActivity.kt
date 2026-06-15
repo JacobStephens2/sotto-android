@@ -251,6 +251,7 @@ class SottoActivity : ComponentActivity() {
     private fun LibraryScreen(onOpen: (OrationEntity) -> Unit, onAbout: () -> Unit,
                               onCompose: () -> Unit, onAccount: (() -> Unit)?) {
         val items by db.orations().allFlow().collectAsState(initial = emptyList())
+        val downloads by page.stephens.sotto.shell.sync.DownloadProgress.state.collectAsState()
         var sheetFor by remember { mutableStateOf<OrationEntity?>(null) }
         Scaffold(topBar = {
             TopAppBar(title = { Text("Sotto") }, actions = {
@@ -271,9 +272,14 @@ class SottoActivity : ComponentActivity() {
                     ListItem(
                         headlineContent = { Text(o.title) },
                         supportingContent = {
+                            val dlPct = downloads[o.id]
                             Column {
-                                Text(subtitleOf(o))
-                                if (o.status == "NARRATING" && (o.chunksTotal ?: 0) > 0)
+                                Text(if (dlPct != null) "Downloading · $dlPct%" else subtitleOf(o))
+                                if (dlPct != null)
+                                    LinearProgressIndicator(
+                                        progress = { dlPct / 100f },
+                                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                                else if (o.status == "NARRATING" && (o.chunksTotal ?: 0) > 0)
                                     LinearProgressIndicator(
                                         progress = { o.chunksDone.toFloat() / o.chunksTotal!! },
                                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
@@ -302,6 +308,7 @@ class SottoActivity : ComponentActivity() {
     }
 
     private fun downloadFromServer(o: OrationEntity) {
+        if (page.stephens.sotto.shell.sync.DownloadProgress.isActive(o.id)) return
         lifecycleScope.launch {
             sync?.download(o)?.onFailure { t ->
                 lifecycleScope.launch(Dispatchers.IO) {

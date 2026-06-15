@@ -20,8 +20,8 @@ android {
         applicationId = "page.stephens.sotto"   // the forever id (concept brief); the spike APKs had .spike and coexist
         minSdk = 29
         targetSdk = 34   // spike-only: avoids SDK-35 edge-to-edge insets work
-        versionCode = 11
-        versionName = "0.4.1"
+        versionCode = 12
+        versionName = "0.4.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "MODEL_ASSET",
             if (fp32) "\"models/model.fp32.onnx\"" else "\"models/model.int8.onnx\"")
