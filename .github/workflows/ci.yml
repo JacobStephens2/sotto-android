@@ -19,7 +19,7 @@ jobs:
       - name: Fetch and stage third-party (AAR + model)
         run: tools/fetch-third-party.sh
       - name: Unit tests + assemble both flavors
-        run: ./gradlew --no-daemon testLocalDebugUnitTest assembleLocalDebug assembleSyncDebug
+        run: ./gradlew --no-daemon testLocalDebugUnitTest assembleLocalDebug assembleSyncDebug -Proborazzi.record=false -Proborazzi.verify=true
       - name: Manifest guards (constitution boundary 3, per flavor)
         run: |
           AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt | tail -1)
@@ -39,3 +39,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with: { name: test-results, path: app/build/test-results }
+      - name: Screenshot diffs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with: { name: roborazzi-diffs, path: app/build/outputs/roborazzi }

@@ -5,7 +5,7 @@
 **An illuminated manuscript on a phone.** Sotto transcribes a text and reads it
 aloud - the work of the late-medieval monastic scriptorium - so the design
 borrows that world: vellum and iron-gall ink, lapis and gold and rubric red,
-a blackletter title and a humanist book hand. It is *not* stock Material 3
+a medieval display title and a humanist book hand. It is *not* stock Material 3
 (that was the v1 stance, now superseded). It is still built entirely on M3
 components and tokens - the illumination is a theme over them, never a fight
 against them - and readability still wins every contest, because Sotto is a
@@ -33,8 +33,10 @@ lapis); not pixels.
 - **Typography** (`Theme.kt`, fonts in `res/font`, both SIL OFL):
   - **EB Garamond** (humanist serif) for display / headline / title roles - the
     printed-book voice.
-  - **UnifrakturMaguntia** (blackletter) for the **Sotto wordmark only**
-    (`SottoWordmark`); too dense for anything longer.
+  - **MedievalSharp** (a legible medieval display face) for the **Sotto
+    wordmark only** (`SottoWordmark`). It replaced UnifrakturMaguntia, whose
+    blackletter Textura capital S read as a "g" - the manuscript flavor is not
+    worth an illegible name.
   - **Body and labels stay the system sans** - on-screen prose legibility,
     including the read-along source text, is non-negotiable.
 - **Shape** (`SottoShapes`): squared corners (2-8dp) - a ruled page and its
@@ -47,8 +49,8 @@ lapis); not pixels.
 
 Custom, used sparingly:
 
-- **SottoWordmark** - the title in blackletter (the one place that face appears:
-  the Library top bar, About).
+- **SottoWordmark** - the title in the medieval display face (the one place that
+  face appears: the Library top bar, About).
 - **Versal** - an illuminated drop-cap: a gold-bordered lapis box with a serif
   initial, the way a manuscript text opens. Used on the empty Library state.
 - **FleuronRule** - a hairline gold rule centered on a fleuron (❧), the scribe's
@@ -87,7 +89,7 @@ type and color, not by archaic copy - the words stay plain and modern.
 
 ## Open / next
 
-- A bundled blackletter is in for the wordmark; a true gilded **drop-cap on each
+- The medieval wordmark face is in; a true gilded **drop-cap on each
   oration's first letter** and **foliate margin rules** are the next illumination.
 - App-icon redraw toward a versal initial.
 - The web app could inherit the same palette/type for cross-surface continuity

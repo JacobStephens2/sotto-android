@@ -1,7 +1,8 @@
 package page.stephens.sotto.shell.ui
 
 // Illuminated-manuscript decorative elements (docs/41-design-system.md):
-//   SottoWordmark - the title in blackletter, the one place that face appears.
+//   SottoWordmark - the title in the medieval display face (MedievalSharp),
+//                   the one place that face appears.
 //   Versal        - an illuminated drop-cap: the gold-bordered lapis initial
 //                   that opens a manuscript text.
 //   FleuronRule   - a hairline gold rule centered on a fleuron (❧), the
@@ -36,7 +37,7 @@ fun SottoWordmark(
     fontSize: TextUnit = 26.sp,
     color: Color = MaterialTheme.colorScheme.primary,
 ) {
-    Text("Sotto", modifier = modifier, fontFamily = Blackletter, fontSize = fontSize, color = color)
+    Text("Sotto", modifier = modifier, fontFamily = Wordmark, fontSize = fontSize, color = color)
 }
 
 /** An illuminated drop-cap: a gold-bordered lapis box with a serif initial,

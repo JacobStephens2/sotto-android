@@ -20,8 +20,8 @@ android {
         applicationId = "page.stephens.sotto"   // the forever id (concept brief); the spike APKs had .spike and coexist
         minSdk = 29
         targetSdk = 34   // spike-only: avoids SDK-35 edge-to-edge insets work
-        versionCode = 15
-        versionName = "0.4.5"
+        versionCode = 16
+        versionName = "0.4.6"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "MODEL_ASSET",
             if (fp32) "\"models/model.fp32.onnx\"" else "\"models/model.int8.onnx\"")
@@ -76,6 +76,23 @@ android {
     buildFeatures { compose = true; buildConfig = true }
     // The Kokoro model assets are large; don't let AAPT try to compress them.
     androidResources { noCompress += listOf("onnx", "bin", "txt", "fst", "dict") }
+
+    // Roborazzi screenshot tests run on the JVM (Robolectric), so they need the
+    // merged Android resources (fonts, colors) and record mode on. No emulator,
+    // no GPU - which is the point on a headless box.
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            // Record goldens locally (default); CI runs with -Proborazzi.verify=true
+            // -Proborazzi.record=false to compare against the committed set.
+            all {
+                it.systemProperty("roborazzi.test.record",
+                    (project.findProperty("roborazzi.record") ?: "true").toString())
+                it.systemProperty("roborazzi.test.verify",
+                    (project.findProperty("roborazzi.verify") ?: "false").toString())
+            }
+        }
+    }
 }
 
 dependencies {
@@ -94,6 +111,16 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    // Roborazzi: render real Composables (SottoTheme, the bundled fonts) to PNG
+    // on the JVM via Robolectric - no emulator/GPU. Library-only (no Gradle
+    // plugin), driven by the roborazzi.test.record system property above.
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.compose.ui:ui-test-manifest")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.32.2")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.32.2")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.32.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
 }

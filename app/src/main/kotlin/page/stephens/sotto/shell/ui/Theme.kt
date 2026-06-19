@@ -9,9 +9,10 @@ package page.stephens.sotto.shell.ui
 //           on vellum/parchment with iron-gall-ink text. Dark mode is the same
 //           page by candlelight. A fixed brand palette, not Material You.
 //   TYPE    EB Garamond (humanist serif) for display/headline/title - the
-//           printed-book voice; UnifrakturMaguntia (blackletter) for the Sotto
-//           wordmark only (too dense for prose); default sans for body/labels
-//           because Sotto is a reading app first.
+//           printed-book voice; MedievalSharp (legible medieval display) for
+//           the Sotto wordmark only; default sans for body/labels because Sotto
+//           is a reading app first. (MedievalSharp replaced UnifrakturMaguntia,
+//           whose blackletter capital S read as a "g".)
 //   SHAPE   squared corners - a manuscript page and its initial-boxes are
 //           rectilinear, not the pill-rounded chrome of a phone app.
 //
@@ -90,8 +91,8 @@ private val DarkColors = darkColorScheme(
 
 // --- Type -------------------------------------------------------------------
 private val Garamond = FontFamily(Font(R.font.eb_garamond))
-/** Blackletter, for the Sotto wordmark only (see Illumination.kt). */
-val Blackletter = FontFamily(Font(R.font.unifraktur_maguntia))
+/** Medieval display face, for the Sotto wordmark only (see Illumination.kt). */
+val Wordmark = FontFamily(Font(R.font.medieval_sharp))
 
 private val base = Typography()
 private val SottoTypography = base.copy(
