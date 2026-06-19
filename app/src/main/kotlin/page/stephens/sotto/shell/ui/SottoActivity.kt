@@ -115,7 +115,7 @@ class SottoActivity : ComponentActivity() {
         val sharedIn = if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain")
             intent.getStringExtra(Intent.EXTRA_TEXT) else null
         setContent {
-            MaterialTheme {
+            SottoTheme {
                 var screen by remember {
                     mutableStateOf<Screen>(if (sharedIn != null) Screen.Confirm(sharedIn) else Screen.Library)
                 }
