@@ -13,5 +13,10 @@ Sotto is GPL-3.0 (see LICENSE) and stands on:
   saying so plainly to engineering around it.
 - **ONNX Runtime** (Microsoft) - MIT.
 - **AndroidX / Jetpack Compose / Media3** - Apache-2.0.
+- **EB Garamond** (Octavio Pardo and the EB Garamond Project Authors) - the
+  headline serif. SIL Open Font License 1.1 (`licenses/OFL-EBGaramond.txt`).
+- **UnifrakturMaguntia** (j. 'mach' wust) - the blackletter *Sotto* wordmark.
+  SIL Open Font License 1.1, Reserved Font Name "UnifrakturMaguntia"
+  (`licenses/OFL-UnifrakturMaguntia.txt`).
 
 The seven voice previews bundled in the app were synthesized with Kokoro-82M.

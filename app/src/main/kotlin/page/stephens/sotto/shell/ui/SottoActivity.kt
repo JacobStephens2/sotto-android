@@ -330,7 +330,7 @@ class SottoActivity : ComponentActivity() {
         val downloads by page.stephens.sotto.shell.sync.DownloadProgress.state.collectAsState()
         var sheetFor by remember { mutableStateOf<OrationEntity?>(null) }
         Scaffold(topBar = {
-            TopAppBar(title = { Text("Sotto") }, actions = {
+            TopAppBar(title = { SottoWordmark() }, actions = {
                 if (onAccount != null) TextButton(onClick = onAccount) { Text("Account") }
                 TextButton(onClick = onAbout) { Text("About") }
                 TextButton(onClick = {
@@ -341,8 +341,15 @@ class SottoActivity : ComponentActivity() {
             androidx.compose.material3.ExtendedFloatingActionButton(onClick = onCompose) { Text("+  Write") }
         }) { pad ->
             if (items.isEmpty()) Column(Modifier.padding(pad).padding(24.dp)) {
+                Spacer(Modifier.height(24.dp))
+                Versal('S', Modifier.align(Alignment.CenterHorizontally))
+                Spacer(Modifier.height(16.dp))
                 Text("Share text to Sotto from any app, or tap Write to paste it here.",
                     style = MaterialTheme.typography.bodyLarge)
+                FleuronRule()
+                Text("Read to you in your own voice, in confidence.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else LazyColumn(Modifier.padding(pad).fillMaxSize()) {
                 items(items, key = { it.id }) { o ->
                     ListItem(
