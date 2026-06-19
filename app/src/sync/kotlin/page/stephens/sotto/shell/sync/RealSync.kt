@@ -134,5 +134,27 @@ private class RealSync(private val context: Context) : SyncProvider {
         }
     }
 
+    override suspend fun account() = runCatching {
+        withContext(Dispatchers.IO) {
+            val a = api().account()
+            ServerAccount(a.email, a.mayOpenai, a.openaiVoices, a.defaultVoice)
+        }
+    }
+
+    override suspend fun narrateOnServer(text: String, voice: String, title: String) = runCatching {
+        withContext(Dispatchers.IO) {
+            val jobId = api().narrate(text, voice, title)
+            JobLog(db.joblog()).log("server-narrate", title, detail = "voice=$voice job=$jobId")
+            jobId
+        }
+    }
+
+    override suspend fun serverJobStatus(jobId: String) = runCatching {
+        withContext(Dispatchers.IO) {
+            val s = api().jobStatus(jobId)
+            ServerJob(s.status, s.pct, s.name, s.error)
+        }
+    }
+
     companion object { const val DEFAULT_SERVER = "https://sotto.stephens.page" }
 }

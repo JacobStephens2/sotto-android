@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -42,6 +43,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -53,7 +55,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -81,6 +85,14 @@ private val VOICES = listOf(
     "am_michael" to "Michael · US male",
     "bf_emma" to "Emma · UK female",
     "bm_george" to "George · UK male",
+)
+
+// Display labels for the server-side OpenAI voices (offered only to allowed
+// accounts; the names come from /api/v1/me, these just prettify them).
+private val OPENAI_VOICE_LABELS = mapOf(
+    "onyx" to "Onyx · deep", "alloy" to "Alloy · neutral", "nova" to "Nova · warm",
+    "shimmer" to "Shimmer · bright", "sage" to "Sage · calm", "fable" to "Fable · expressive",
+    "echo" to "Echo · crisp",
 )
 
 private sealed class Screen {
@@ -158,31 +170,95 @@ class SottoActivity : ComponentActivity() {
             }
         }
         val estMin = (words * rate / 60).coerceAtLeast(1.0)
+        // Server narration is offered only when connected to an account the server
+        // lets onto the paid OpenAI backend (docs/12-api-contract.md, /api/v1/me).
+        val server by produceState<page.stephens.sotto.shell.sync.ServerAccount?>(null) {
+            value = sync?.account()?.getOrNull()
+        }
+        var onServer by remember { mutableStateOf(false) }
+        var serverPct by remember { mutableStateOf<Int?>(null) }   // non-null while a server job runs
+        var serverErr by remember { mutableStateOf<String?>(null) }
+        val scope = rememberCoroutineScope()
+        val busy = serverPct != null
+        val openaiVoices = server?.openaiVoices ?: emptyList()
+
         Scaffold(topBar = { TopAppBar(title = { Text("New oration") }) }) { pad ->
             Column(Modifier.padding(pad).padding(16.dp).verticalScroll(rememberScrollState())) {
                 OutlinedTextField(value = title, onValueChange = { title = it.take(120) },
-                    label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    label = { Text("Name") }, singleLine = true, enabled = !busy,
+                    modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
-                Text("$words words · about ${"%.0f".format(estMin)} min to narrate",
+                Text("$words words · " +
+                        if (onServer) "narrated on the server" else "about ${"%.0f".format(estMin)} min to narrate",
                     style = MaterialTheme.typography.bodyMedium)
+
+                if (server?.mayOpenai == true && openaiVoices.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(checked = onServer, enabled = !busy, onCheckedChange = {
+                            onServer = it
+                            voice = if (it) (openaiVoices.firstOrNull() ?: "onyx") else "af_heart"
+                        })
+                        Spacer(Modifier.width(8.dp))
+                        Text("Narrate on the server (OpenAI)", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (onServer) Text(
+                        "Uses your account's OpenAI credits; it appears in your library when ready.",
+                        style = MaterialTheme.typography.bodySmall)
+                }
+
                 Spacer(Modifier.height(12.dp))
                 Text("Voice", style = MaterialTheme.typography.labelLarge)
-                VOICES.forEach { (id, label) ->
+                val choices = if (onServer)
+                    openaiVoices.map { it to (OPENAI_VOICE_LABELS[it] ?: it.replaceFirstChar(Char::uppercase)) }
+                else VOICES
+                choices.forEach { (id, label) ->
                     ListItem(
                         headlineContent = { Text(label) },
                         leadingContent = {
-                            FilterChip(selected = voice == id, onClick = { voice = id },
+                            FilterChip(selected = voice == id, enabled = !busy, onClick = { voice = id },
                                 label = { Text(if (voice == id) "chosen" else "choose") })
                         },
-                        trailingContent = {
+                        trailingContent = (@Composable {
                             TextButton(onClick = { playPreview(id) }) { Text("Hear") }
-                        },
+                        }).takeIf { !onServer },
                     )
                 }
+
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = { narrate(text, title.ifBlank { Titles.derive(text) }, voice); onDone() },
-                    modifier = Modifier.fillMaxWidth()) { Text("Narrate") }
-                TextButton(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+                if (busy) {
+                    Text("Narrating on server · ${serverPct}%", style = MaterialTheme.typography.bodyMedium)
+                    LinearProgressIndicator(progress = { (serverPct ?: 0) / 100f },
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+                    Spacer(Modifier.height(12.dp))
+                }
+                serverErr?.let {
+                    Text("Server narration failed: $it", color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                Button(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = {
+                    val finalTitle = title.ifBlank { Titles.derive(text) }
+                    if (!onServer) { narrate(text, finalTitle, voice); onDone(); return@Button }
+                    val s = sync ?: return@Button
+                    scope.launch {
+                        serverErr = null; serverPct = 0
+                        val jobId = s.narrateOnServer(text, voice, finalTitle).getOrElse {
+                            serverErr = it.message ?: "could not submit"; serverPct = null; return@launch
+                        }
+                        while (true) {
+                            kotlinx.coroutines.delay(2500)
+                            val st = s.serverJobStatus(jobId).getOrNull() ?: continue
+                            serverPct = st.pct
+                            if (st.error != null) { serverErr = st.error; serverPct = null; break }
+                            if (st.status == "done" && st.name != null) {
+                                s.syncNow(); serverPct = null; onDone(); break
+                            }
+                        }
+                    }
+                }) { Text(if (onServer) "Narrate on server" else "Narrate") }
+                TextButton(onClick = onDone, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
             }
         }
     }

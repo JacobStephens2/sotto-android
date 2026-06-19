@@ -29,6 +29,35 @@ class SottoApi(private val baseUrl: String, private val token: String? = null) {
 
     fun me(): String = JSONObject(call("GET", "/api/v1/me")).getString("email")
 
+    data class Account(val email: String, val mayOpenai: Boolean,
+                       val openaiVoices: List<String>, val defaultVoice: String)
+
+    fun account(): Account {
+        val o = JSONObject(call("GET", "/api/v1/me"))
+        val ov = o.optJSONArray("openai_voices")
+        return Account(
+            email = o.getString("email"),
+            mayOpenai = o.optBoolean("may_openai"),
+            openaiVoices = (0 until (ov?.length() ?: 0)).map { ov!!.getString(it) },
+            defaultVoice = o.optString("default_voice", "af_heart"))
+    }
+
+    /** Submit server-side narration; returns the job id to poll. */
+    fun narrate(text: String, voice: String, title: String): String {
+        val body = JSONObject().put("text", text).put("voice", voice).put("title", title)
+        return JSONObject(call("POST", "/api/v1/narrate", json = body.toString())).getString("job_id")
+    }
+
+    data class JobStatus(val status: String, val pct: Int, val name: String?, val error: String?)
+
+    fun jobStatus(jobId: String): JobStatus {
+        val o = JSONObject(call("GET", "/api/v1/jobs/$jobId"))
+        return JobStatus(
+            status = o.optString("status", "unknown"), pct = o.optInt("pct"),
+            name = if (o.isNull("name")) null else o.optString("name"),
+            error = if (o.isNull("error")) null else o.optString("error"))
+    }
+
     fun library(): List<Entry> {
         val arr = JSONObject(call("GET", "/api/v1/library")).getJSONArray("entries")
         return (0 until arr.length()).map { i ->

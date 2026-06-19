@@ -10,8 +10,9 @@ is tracked in tasks.md and does not exist yet. Versioned under `/api/v1/`.
 - Token auth, because the app is not a browser: no cookies, no CSRF.
 - The server's library remains filename-keyed (slug + sidecars); the API
   exposes that model rather than inventing a new one.
-- Server remains the synthesis authority for nothing here: the app narrates
-  on-device; this API only moves finished orations and metadata.
+- The app narrates on-device by default; this API moves finished orations and
+  metadata, and (additively) lets a connected account ask the server to narrate
+  - the one way to reach the paid OpenAI backend, which never runs on-device.
 
 ## Authentication
 
@@ -26,8 +27,30 @@ Body: `{"email": "...", "password": "..."}`
 - Tokens are listed and revocable on the web account page.
 - All other endpoints: `Authorization: Bearer <token>` → 401 if absent/invalid.
 
-`GET /api/v1/me` → `200 {"email": "..."}` - connection test for the app's
-"Connect account" screen.
+`GET /api/v1/me`
+→ `200 {"email": "...", "may_openai": true, "kokoro_voices": [...],
+"openai_voices": ["onyx", ...], "default_voice": "af_heart"}`
+Connection test and capability probe. `openai_voices` is non-empty only for
+accounts in the server's `LECTOR_OPENAI_ALLOWED` set; the app shows the
+"Narrate on the server (OpenAI)" option only when `may_openai` is true.
+
+## Server-side narration
+
+`POST /api/v1/narrate`
+Body: `{"text": "...", "voice": "onyx", "title": "...", "notify": false}`
+→ `202 {"job_id": "<hex>", "status": "queued", "voice": "...", "backend": "openai|kokoro"}`
+
+- Runs the same job machinery as the web `/convert`; the result **auto-saves**
+  to the owner's Library (API clients have no manual save step).
+- `voice` must be one the account may use (`/api/v1/me`); requesting an OpenAI
+  voice without permission → `403 {"error": "voice"}` (loud, not a silent
+  downgrade). `text` capped at 400 KB (413 over).
+
+`GET /api/v1/jobs/<job_id>`
+→ `200 {"status": "queued|running|done|stopped|error", "done": n, "total": n,
+"pct": 0-100, "words": n, "error": null, "name": "slug.mp3"|null}`
+- Owner-scoped (404 for others). `name` is set only once the result is in the
+  Library; the app polls until `name` appears, then `GET /library` to pull it.
 
 ## Library
 

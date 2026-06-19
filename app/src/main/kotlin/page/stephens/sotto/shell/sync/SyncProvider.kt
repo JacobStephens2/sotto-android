@@ -7,6 +7,20 @@ package page.stephens.sotto.shell.sync
 import android.content.Context
 import page.stephens.sotto.engine.store.OrationEntity
 
+/** What the account may do server-side (docs/12-api-contract.md, /api/v1/me).
+ *  `openaiVoices` is non-empty only for accounts the server allows onto the
+ *  paid OpenAI backend; everyone else narrates with Kokoro, on-device or server. */
+data class ServerAccount(
+    val email: String,
+    val mayOpenai: Boolean,
+    val openaiVoices: List<String>,
+    val defaultVoice: String,
+)
+
+/** A server narration job in flight (POST /api/v1/narrate then poll). `name` is
+ *  the Library filename, set only once the result has been saved server-side. */
+data class ServerJob(val status: String, val pct: Int, val name: String?, val error: String?)
+
 interface SyncProvider {
     /** Connected account email, or null. */
     fun accountEmail(): String?
@@ -17,6 +31,12 @@ interface SyncProvider {
     suspend fun syncNow(): Result<String>
     suspend fun download(o: OrationEntity): Result<Unit>
     suspend fun upload(o: OrationEntity): Result<String>
+    /** The connected account's server-side capabilities. */
+    suspend fun account(): Result<ServerAccount>
+    /** Submit text for server-side narration (lets an allowed account use the
+     *  paid OpenAI backend). Returns the job id to poll with [serverJobStatus]. */
+    suspend fun narrateOnServer(text: String, voice: String, title: String): Result<String>
+    suspend fun serverJobStatus(jobId: String): Result<ServerJob>
 }
 
 object Sync {
