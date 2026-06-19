@@ -44,7 +44,13 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Test
@@ -53,6 +59,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import page.stephens.sotto.shell.ui.FleuronRule
+import page.stephens.sotto.shell.ui.RubricHeader
 import page.stephens.sotto.shell.ui.SottoTheme
 import page.stephens.sotto.shell.ui.SottoWordmark
 import page.stephens.sotto.shell.ui.Versal
@@ -142,7 +149,7 @@ class IlluminatedScreenshotTest {
                     Text("Narrate on the server (OpenAI)", style = MaterialTheme.typography.bodyMedium)
                 }
                 Spacer(Modifier.height(12.dp))
-                Text("Voice", style = MaterialTheme.typography.labelLarge)
+                RubricHeader("Voice")
                 listOf("Onyx · deep" to true, "Nova · warm" to false, "Shimmer · bright" to false)
                     .forEach { (label, chosen) ->
                         ListItem(headlineContent = { Text(label) }, leadingContent = {
@@ -171,7 +178,7 @@ class IlluminatedScreenshotTest {
                     Button(onClick = {}) { Text("15s »") }
                 }
                 Spacer(Modifier.height(12.dp))
-                Text("Speed", style = MaterialTheme.typography.labelLarge)
+                RubricHeader("Speed")
                 Row {
                     listOf("0.8x" to false, "1.0x" to true, "1.25x" to false, "1.5x" to false).forEach { (s, on) ->
                         FilterChip(selected = on, onClick = {}, label = { Text(s) },
@@ -180,12 +187,15 @@ class IlluminatedScreenshotTest {
                 }
                 Spacer(Modifier.height(12.dp))
                 TextButton(onClick = {}) { Text("Stop narrating (keeps what's done)") }
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Text("Text", style = MaterialTheme.typography.labelLarge)
-                Text("Yes - and the evidence in your own stack genuinely backs all three. " +
-                    "But I'd be careful how you present them, because three co-equal titles " +
-                    "can read as unfocused, and your target rewards a clear lead.",
-                    style = MaterialTheme.typography.bodyMedium)
+                FleuronRule()
+                RubricHeader("Text")
+                Text(buildAnnotatedString {
+                    withStyle(SpanStyle(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                        fontSize = 34.sp, color = MaterialTheme.colorScheme.tertiary)) { append("Y") }
+                    append("es - and the evidence in your own stack genuinely backs all three. " +
+                        "But I'd be careful how you present them, because three co-equal titles " +
+                        "can read as unfocused, and your target rewards a clear lead.")
+                }, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }

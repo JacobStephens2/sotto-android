@@ -62,6 +62,19 @@ fun Versal(letter: Char, modifier: Modifier = Modifier, boxSize: Dp = 56.dp) {
     }
 }
 
+/** A rubricated heading: red (the rubric tradition - Latin *ruber*), spaced
+ *  small-caps. Used for section labels, sparingly. */
+@Composable
+fun RubricHeader(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text.uppercase(),
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.tertiary,
+        style = MaterialTheme.typography.labelLarge,
+        letterSpacing = 1.5.sp,
+    )
+}
+
 /** A scribe's section break: hairline gold rule centered on a fleuron. */
 @Composable
 fun FleuronRule(modifier: Modifier = Modifier) {

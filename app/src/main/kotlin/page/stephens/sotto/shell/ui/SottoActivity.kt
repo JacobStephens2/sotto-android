@@ -59,7 +59,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.Player
@@ -208,7 +214,7 @@ class SottoActivity : ComponentActivity() {
                 }
 
                 Spacer(Modifier.height(12.dp))
-                Text("Voice", style = MaterialTheme.typography.labelLarge)
+                RubricHeader("Voice")
                 val choices = if (onServer)
                     openaiVoices.map { it to (OPENAI_VOICE_LABELS[it] ?: it.replaceFirstChar(Char::uppercase)) }
                 else VOICES
@@ -551,7 +557,7 @@ class SottoActivity : ComponentActivity() {
                     Button(onClick = { controller?.seekTo(positionMs + 15_000) }) { Text("15s »") }
                 }
                 Spacer(Modifier.height(20.dp))
-                Text("Speed", style = MaterialTheme.typography.labelLarge)
+                RubricHeader("Speed")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(0.8f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { s ->
                         FilterChip(selected = speed == s,
@@ -560,7 +566,7 @@ class SottoActivity : ComponentActivity() {
                     }
                 }
                 Spacer(Modifier.height(12.dp))
-                Text("Sleep timer", style = MaterialTheme.typography.labelLarge)
+                RubricHeader("Sleep timer")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(15, 30, 60).forEach { m ->
                         FilterChip(selected = sleepLeft == m,
@@ -587,10 +593,22 @@ class SottoActivity : ComponentActivity() {
                 }
                 if (source.isNotBlank()) {
                     Spacer(Modifier.height(16.dp))
-                    HorizontalDivider()
-                    Text("Text", style = MaterialTheme.typography.labelLarge,
-                        modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
-                    Text(source, style = MaterialTheme.typography.bodyMedium,
+                    FleuronRule()
+                    RubricHeader("Text", Modifier.padding(top = 12.dp, bottom = 6.dp))
+                    // An illuminated initial opens the reading (a raised rubric
+                    // versal), the manuscript's most iconic element - restrained
+                    // to a single gilded letter, the rest plain and readable.
+                    val reading = buildAnnotatedString {
+                        val i = source.indexOfFirst { !it.isWhitespace() }
+                        if (i < 0) { append(source); return@buildAnnotatedString }
+                        append(source.substring(0, i))
+                        withStyle(SpanStyle(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
+                            fontSize = 34.sp, color = MaterialTheme.colorScheme.tertiary)) {
+                            append(source[i].toString())
+                        }
+                        append(source.substring(i + 1))
+                    }
+                    Text(reading, style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()))
                 }
             }

@@ -16,6 +16,18 @@ The shared identity with the web app is the name, the boundary story, the
 voices, and now the palette lineage (the web navy descends to the manuscript
 lapis); not pixels.
 
+**Why monastic, not classical-orator** (the alternative considered 2026-06-19):
+the decisive thread is *lector* - the app's original name and the liturgical
+office of one who reads Scripture aloud to the assembly. The scriptorium frame
+captures Sotto's whole pipeline (scriptorium→library, lectionary→the document,
+lector→the narration, *sotto voce*→the private register), where a Greco-Roman
+orator theme captures only the speaking half and imports the wrong connotation:
+public performance and persuasion, the opposite of an audience of one. Sourced
+from a three-model research synthesis on the monastic illuminated style; the
+operative caution from all three is *restraint* - ornament as occasional
+emphasis on an otherwise calm, readable page (a reading app cannot do real
+*horror vacui*).
+
 ## Foundations
 
 - **Color** (`shell/ui/Theme.kt`). A fixed brand palette - deliberately *not*
@@ -55,6 +67,17 @@ Custom, used sparingly:
   initial, the way a manuscript text opens. Used on the empty Library state.
 - **FleuronRule** - a hairline gold rule centered on a fleuron (❧), the scribe's
   section break.
+- **RubricHeader** - a section heading in rubric red, spaced small-caps (Latin
+  *ruber*; rubrics were the red instructional headings). Used for Voice / Speed /
+  Sleep timer / Text.
+- **Illuminated reading initial** - the Player read-along opens with a raised
+  rubric versal (the source's first letter, enlarged serif), the single most
+  iconic manuscript element, kept to one gilded letter with the rest plain.
+
+The web app (sotto.stephens.page) carries the same language: the parchment
+ground gets a faint feTurbulence vellum grain, section labels are rubricated
+small-caps, the fleuron rule sits above the footer, and the wordmark is the
+same MedievalSharp.
 
 Everything else is stock M3 (TopAppBar, ListItem, FilterChip, LinearProgress,
 Slider, AlertDialog, ModalBottomSheet, Switch), inheriting the theme.
