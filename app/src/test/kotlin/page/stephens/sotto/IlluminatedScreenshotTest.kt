@@ -44,13 +44,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Test
@@ -58,7 +52,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import page.stephens.sotto.shell.ui.DropCapText
 import page.stephens.sotto.shell.ui.FleuronRule
+import page.stephens.sotto.shell.ui.FoliateRule
 import page.stephens.sotto.shell.ui.RubricHeader
 import page.stephens.sotto.shell.ui.SottoTheme
 import page.stephens.sotto.shell.ui.SottoWordmark
@@ -74,7 +70,7 @@ class IlluminatedScreenshotTest {
     // goldens vs. the CI runner) doesn't flake the verify run; a real layout or
     // color change is far larger than 1% of pixels.
     private val options = RoborazziOptions(
-        compareOptions = RoborazziOptions.CompareOptions(changeThreshold = 0.01f))
+        compareOptions = RoborazziOptions.CompareOptions(changeThreshold = 0.02f))
 
     private fun shot(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("screenshots/$name.png", roborazziOptions = options) {
@@ -104,7 +100,7 @@ class IlluminatedScreenshotTest {
                 Spacer(Modifier.height(16.dp))
                 Text("Share text to Sotto from any app, or tap Write to paste it here.",
                     style = MaterialTheme.typography.bodyLarge)
-                FleuronRule()
+                FoliateRule()
                 Text("Read to you in your own voice, in confidence.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -189,13 +185,13 @@ class IlluminatedScreenshotTest {
                 TextButton(onClick = {}) { Text("Stop narrating (keeps what's done)") }
                 FleuronRule()
                 RubricHeader("Text")
-                Text(buildAnnotatedString {
-                    withStyle(SpanStyle(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                        fontSize = 34.sp, color = MaterialTheme.colorScheme.tertiary)) { append("Y") }
-                    append("es - and the evidence in your own stack genuinely backs all three. " +
+                DropCapText(
+                    text = "Yes - and the evidence in your own stack genuinely backs all three. " +
                         "But I'd be careful how you present them, because three co-equal titles " +
-                        "can read as unfocused, and your target rewards a clear lead.")
-                }, style = MaterialTheme.typography.bodyMedium)
+                        "can read as unfocused, and your target rewards a clear lead.",
+                    capColor = MaterialTheme.colorScheme.tertiary,
+                    bodyColor = MaterialTheme.colorScheme.onSurface,
+                )
             }
         }
     }

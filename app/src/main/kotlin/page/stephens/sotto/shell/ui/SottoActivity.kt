@@ -59,13 +59,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.Player
@@ -352,7 +346,7 @@ class SottoActivity : ComponentActivity() {
                 Spacer(Modifier.height(16.dp))
                 Text("Share text to Sotto from any app, or tap Write to paste it here.",
                     style = MaterialTheme.typography.bodyLarge)
-                FleuronRule()
+                FoliateRule()
                 Text("Read to you in your own voice, in confidence.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -595,21 +589,15 @@ class SottoActivity : ComponentActivity() {
                     Spacer(Modifier.height(16.dp))
                     FleuronRule()
                     RubricHeader("Text", Modifier.padding(top = 12.dp, bottom = 6.dp))
-                    // An illuminated initial opens the reading (a raised rubric
-                    // versal), the manuscript's most iconic element - restrained
-                    // to a single gilded letter, the rest plain and readable.
-                    val reading = buildAnnotatedString {
-                        val i = source.indexOfFirst { !it.isWhitespace() }
-                        if (i < 0) { append(source); return@buildAnnotatedString }
-                        append(source.substring(0, i))
-                        withStyle(SpanStyle(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                            fontSize = 34.sp, color = MaterialTheme.colorScheme.tertiary)) {
-                            append(source[i].toString())
-                        }
-                        append(source.substring(i + 1))
-                    }
-                    Text(reading, style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()))
+                    // A true sunk drop-cap opens the reading: the first letter as
+                    // a gilded rubric initial the next lines wrap around (the
+                    // manuscript's most iconic element), then full-width text.
+                    DropCapText(
+                        text = source,
+                        capColor = MaterialTheme.colorScheme.tertiary,
+                        bodyColor = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                    )
                 }
             }
         }

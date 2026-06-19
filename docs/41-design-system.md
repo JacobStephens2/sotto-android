@@ -110,10 +110,30 @@ what happened and what survives ("Storage full - narration stopped after chunk
 41. Everything narrated so far is saved."). The scriptorium theme is carried by
 type and color, not by archaic copy - the words stay plain and modern.
 
+## Advanced illumination (2026-06-19, both surfaces)
+
+All restrained - emphasis at the edges and openings, the reading column calm:
+
+- **True sunk drop-cap.** Web: `.reading::first-letter` float initial (About).
+  Android: `DropCapText` hosts a TextView with a `LeadingMarginSpan2`
+  (`DropCapSpan`) so the first two-three lines wrap around the gilded rubric
+  initial, then full width - Compose can't wrap text around an inline box, so
+  this is the platform mechanism. Opens the Player read-along.
+- **Diminuendo wordmark.** The Insular cascade (opening letter largest, each
+  next a step smaller). Web: per-letter `WORDMARK` spans. Android:
+  `SottoWordmark` builds it with per-letter `SpanStyle` sizes.
+- **Gilded Versal with filigree.** `Versal` draws a gold rule + corner-scroll
+  filigree (Canvas) with a gold letter on lapis. Web: a `VERSAL_SVG` on sign-in.
+- **Foliate rule.** `FoliateRule` (Canvas: a gold stem sprouting leaves) as a
+  richer section break; web has gold leaf-and-vine **margin borders** down both
+  sides on wide screens.
+- **Versal app-icon / favicon.** The launcher adaptive icon foreground is a gold
+  calligraphic S on lapis (`ic_launcher_foreground.xml`, background lapis);
+  the web favicon matches.
+
 ## Open / next
 
-- The medieval wordmark face is in; a true gilded **drop-cap on each
-  oration's first letter** and **foliate margin rules** are the next illumination.
-- App-icon redraw toward a versal initial.
-- The web app could inherit the same palette/type for cross-surface continuity
-  (currently only the navy↔lapis lineage is shared).
+- A historiated initial (a miniature scene *inside* the letter) needs real art.
+- The web app fully shares the palette, type, and these illuminations now;
+  only a true vellum *texture* on Android (vs the web feTurbulence grain) is
+  still missing.

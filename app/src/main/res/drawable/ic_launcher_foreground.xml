@@ -1,12 +1,14 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <!-- Speaker + sound waves, from the Sotto web favicon, centered in the safe zone. -->
-    <group android:scaleX="1.7" android:scaleY="1.7" android:translateX="26.8" android:translateY="26.8">
-        <path android:fillColor="#FFFFFF" android:pathData="M3,11h5l6,-6v22l-6,-6H3z"/>
-        <path android:strokeColor="#FFFFFF" android:strokeWidth="2.6" android:strokeLineCap="round"
-            android:pathData="M18,10a7,7 0 0,1 0,12"/>
-        <path android:strokeColor="#FFFFFF" android:strokeWidth="2.6" android:strokeLineCap="round"
-            android:pathData="M21.5,6a12.5,12.5 0 0,1 0,20"/>
-    </group>
+    <!-- A versal: a gold calligraphic initial S on the lapis ground, with two
+         gold flourish dots. Kept inside the adaptive-icon safe zone (centre 66dp)
+         so nothing clips on circle/squircle masks. -->
+    <path android:strokeColor="#E6C66A" android:strokeWidth="8" android:strokeLineCap="round"
+        android:strokeLineJoin="round" android:fillColor="#00000000"
+        android:pathData="M68,42 C68,32 55,30 47,35 C38,40 41,51 53,55 C65,59 67,69 58,74 C50,78 38,76 37,66"/>
+    <path android:fillColor="#E6C66A"
+        android:pathData="M54,26 m-2.4,0 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0"/>
+    <path android:fillColor="#E6C66A"
+        android:pathData="M54,82 m-2.4,0 a2.4,2.4 0 1,0 4.8,0 a2.4,2.4 0 1,0 -4.8,0"/>
 </vector>
