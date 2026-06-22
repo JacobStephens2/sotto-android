@@ -127,9 +127,12 @@ All restrained - emphasis at the edges and openings, the reading column calm:
 - **Foliate rule.** `FoliateRule` (Canvas: a gold stem sprouting leaves) as a
   richer section break; web has gold leaf-and-vine **margin borders** down both
   sides on wide screens.
-- **Versal app-icon / favicon.** The launcher adaptive icon foreground is a gold
-  calligraphic S on lapis (`ic_launcher_foreground.xml`, background lapis);
-  the web favicon matches.
+- **Versal app-icon / favicon.** The launcher adaptive icon is a gold EB
+  Garamond S in a gold roundel on lapis (`drawable-xxxhdpi/ic_launcher_foreground.png`,
+  rendered from the bundled font; background lapis). A roundel, not a square
+  frame, so it's safe inside any mask's safe circle - and a real serif S, after
+  an earlier stroked-S-with-flourishes read as a dollar sign. Web favicon is a
+  square versal panel with the S.
 
 ## Open / next
 
