@@ -8,3 +8,6 @@ third_party/
 app/libs/*.aar
 app/src/main/assets/gate/
 app/src/precision/*/models/
+
+# Kotlin daemon/build scratch
+.kotlin/
