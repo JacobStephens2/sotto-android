@@ -9,6 +9,7 @@ package page.stephens.sotto.shell.ui
 import android.content.ComponentName
 import android.content.Intent
 import android.media.MediaPlayer
+import android.widget.Toast
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -128,7 +129,8 @@ class SottoActivity : ComponentActivity() {
                         },
                         onAbout = { screen = Screen.About },
                         onCompose = { screen = Screen.Compose },
-                        onAccount = if (sync != null) ({ screen = Screen.Account }) else null)
+                        onAccount = if (sync != null) ({ screen = Screen.Account }) else null,
+                        onLibrary = if (sync != null) ({ refreshLibrary() }) else null)
                     is Screen.Compose -> ComposeScreen(
                         onContinue = { text -> screen = Screen.Confirm(text) },
                         onBack = { screen = Screen.Library })
@@ -325,12 +327,14 @@ class SottoActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
     @Composable
     private fun LibraryScreen(onOpen: (OrationEntity) -> Unit, onAbout: () -> Unit,
-                              onCompose: () -> Unit, onAccount: (() -> Unit)?) {
+                              onCompose: () -> Unit, onAccount: (() -> Unit)?,
+                              onLibrary: (() -> Unit)?) {
         val items by db.orations().allFlow().collectAsState(initial = emptyList())
         val downloads by page.stephens.sotto.shell.sync.DownloadProgress.state.collectAsState()
         var sheetFor by remember { mutableStateOf<OrationEntity?>(null) }
         Scaffold(topBar = {
             TopAppBar(title = { SottoWordmark() }, actions = {
+                if (onLibrary != null) TextButton(onClick = onLibrary) { Text("Library") }
                 if (onAccount != null) TextButton(onClick = onAccount) { Text("Account") }
                 TextButton(onClick = onAbout) { Text("About") }
                 TextButton(onClick = {
@@ -347,9 +351,6 @@ class SottoActivity : ComponentActivity() {
                 Text("Share text to Sotto from any app, or tap Write to paste it here.",
                     style = MaterialTheme.typography.bodyLarge)
                 FoliateRule()
-                Text("Read to you in your own voice, in confidence.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else LazyColumn(Modifier.padding(pad).fillMaxSize()) {
                 items(items, key = { it.id }) { o ->
                     ListItem(
@@ -398,6 +399,22 @@ class SottoActivity : ComponentActivity() {
                     JobLog(db.joblog()).log("error", o.title, o.id, "download: $t")
                 }
             }
+        }
+    }
+
+    // The Library tab pulls the server library so the account's files show up as
+    // (not-yet-downloaded) rows here, then tap to download. No-op without a
+    // connected account.
+    private fun refreshLibrary() {
+        val s = sync ?: return
+        if (s.accountEmail() == null) {
+            Toast.makeText(this, "Connect your account first (Account)", Toast.LENGTH_SHORT).show()
+            return
+        }
+        lifecycleScope.launch {
+            s.syncNow()
+                .onSuccess { Toast.makeText(this@SottoActivity, it, Toast.LENGTH_SHORT).show() }
+                .onFailure { Toast.makeText(this@SottoActivity, "Sync failed: ${it.message}", Toast.LENGTH_SHORT).show() }
         }
     }
 

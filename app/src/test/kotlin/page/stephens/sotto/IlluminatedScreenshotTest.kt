@@ -90,7 +90,12 @@ class IlluminatedScreenshotTest {
 
     // --- reconstructed screens ----------------------------------------------
 
-    @Composable private fun Bar() = TopAppBar(title = { SottoWordmark() })
+    @Composable private fun Bar() = TopAppBar(title = { SottoWordmark() }, actions = {
+        TextButton(onClick = {}) { Text("Library") }
+        TextButton(onClick = {}) { Text("Account") }
+        TextButton(onClick = {}) { Text("About") }
+        TextButton(onClick = {}) { Text("Lab") }
+    })
 
     @Composable private fun EmptyLibrary() {
         Scaffold(topBar = { Bar() }) { pad ->
@@ -101,9 +106,6 @@ class IlluminatedScreenshotTest {
                 Text("Share text to Sotto from any app, or tap Write to paste it here.",
                     style = MaterialTheme.typography.bodyLarge)
                 FoliateRule()
-                Text("Read to you in your own voice, in confidence.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
