@@ -50,6 +50,7 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
       generate_voices_bin.py - af_heart=3; early builds spoke af_alloy=0);
       calibrated estimate (median of completed orations) - 2026-06-12
 - [x] About: provenance + no-network claim + on-device activity log - 2026-06-12
+      (enforced by AboutScreenTest per flavor since 2026-10-15; constitution 6)
 - [x] PRD edge cases (code + JVM/emulator verified) - 2026-10-15:
       storage-full = NarrationResult.StorageFull, partial trimmed to the last
       durable chunk, STOPPED with the cause shown, resume byte-identical;

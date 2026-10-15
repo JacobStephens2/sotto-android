@@ -18,10 +18,10 @@ jobs:
           key: thirdparty-sherpa1.13.2-kokoro-int8-v1_0
       - name: Fetch and stage third-party (AAR + model)
         run: tools/fetch-third-party.sh
-      - name: Lint + unit tests + assemble both flavors
+      - name: Lint + unit tests (both flavors: AboutScreenTest checks each manifest) + assemble
         # Lint is the only check that sees API-level misuse (minSdk 29): JVM
         # unit tests run on the host JDK, where every API exists.
-        run: ./gradlew --no-daemon lintLocalDebug lintSyncDebug testLocalDebugUnitTest assembleLocalDebug assembleSyncDebug -Proborazzi.record=false -Proborazzi.verify=true
+        run: ./gradlew --no-daemon lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug -Proborazzi.record=false -Proborazzi.verify=true
       - name: Manifest guards (constitution boundary 3, per flavor)
         run: |
           AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt | tail -1)
