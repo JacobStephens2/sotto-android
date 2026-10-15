@@ -732,21 +732,8 @@ class SottoActivity : ComponentActivity() {
         }) { pad ->
             LazyColumn(Modifier.padding(pad).padding(16.dp)) {
                 item {
-                    // PRD S5: the claim must match the build it appears in.
-                    Text(
-                        "Sotto narrates documents on this device. The voice is " +
-                        "synthetic, produced by Kokoro-82M - an openly licensed (Apache-2.0) " +
-                        "model trained on documented public-domain and permissively licensed " +
-                        "audio. " + if (sync == null)
-                            "Nothing you share with Sotto leaves the phone: this build " +
-                            "holds no INTERNET permission, which anyone can verify with " +
-                            "`aapt dump permissions` on the APK.\n"
-                        else
-                            "This build can reach the network, only for an account you " +
-                            "connect: it syncs your library with the Sotto server you name, " +
-                            "and if you switch on server narration for an oration, it sends " +
-                            "that text to your server, which narrates it with OpenAI voices. " +
-                            "Nothing else leaves the phone.\n",
+                    // PRD S5 / constitution 6: the claim must match the build it appears in.
+                    Text(Provenance.about(networked = sync != null) + "\n",
                         style = MaterialTheme.typography.bodyMedium)
                     Text("Activity log (stays on this device)",
                         style = MaterialTheme.typography.titleSmall)

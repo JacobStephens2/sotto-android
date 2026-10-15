@@ -28,8 +28,9 @@ these. They are checked, not aspirational: each names its enforcement.
 6. **Provenance honesty.** The About screen names Kokoro-82M, its Apache-2.0
    license, and its documented training data; calls the voices synthetic; in
    `local`, states the no-network property next to its verification command.
-   *Enforced by:* release checklist item + a UI test asserting the screen's
-   key strings.
+   *Enforced by:* release checklist item + ProvenanceTest (JVM) asserting the
+   About statement's key strings per flavor - `sync` must not carry the
+   no-network claim.
 7. **The user's material is the user's.** Orations, source text, and the log
    are exportable via SAF at any time; deleting is real deletion. *Enforced by:*
    PRD acceptance S3/S5.
