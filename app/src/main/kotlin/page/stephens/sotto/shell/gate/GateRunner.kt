@@ -73,6 +73,11 @@ class GateRunner(private val context: Context) {
                             "narrated %.1f min this+prior runs, wall %.1f min this run"
                                 .format(result.narratedMs / 60000.0, (now() - started) / 60000.0)
                     }
+                    is NarrationResult.StorageFull -> {
+                        dao.setStatus("gate", "STOPPED", now(), "Storage full")
+                        log.log("stopped", "Phase 1 gate", "gate", "storage full at ${result.chunksDone}/${result.totalChunks}")
+                        "gate stopped: storage full at ${result.chunksDone}/${result.totalChunks} (free space, re-tap to resume)"
+                    }
                     is NarrationResult.Stopped -> {
                         dao.setStatus("gate", "STOPPED", now())
                         log.log("stopped", "Phase 1 gate", "gate", "${result.chunksDone}/${result.totalChunks}")

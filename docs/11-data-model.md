@@ -22,7 +22,7 @@ artifacts. Layout mirrors the server's library sidecar convention (`.mp3` +
 | narratedMs | Long | accumulated wall-clock synthesis time across resumes (fixes the server's known undercount) |
 | createdAt / updatedAt | Long | epoch ms |
 | playheadMs | Long | last listening position (S2 position memory) |
-| errorMessage | String? | terminal error detail |
+| errorMessage | String? | ERROR: terminal error detail; STOPPED: the stop's cause when it was not the user (storage full) |
 | serverName | String? | sync key: filename in the server library (`sync` flavor; null = never synced) |
 | serverMtime | Long? | server-side mtime at last sync, for rename LWW (12-api-contract.md) |
 | downloaded | Bool | false for SERVER_ONLY rows (metadata known, audio not yet fetched) |

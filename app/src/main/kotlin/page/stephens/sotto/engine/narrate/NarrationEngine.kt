@@ -40,6 +40,9 @@ data class Progress(val chunksDone: Int, val audioBytes: Long, val narratedMs: L
 sealed class NarrationResult {
     data class Complete(val chunks: Int, val audioBytes: Long, val narratedMs: Long) : NarrationResult()
     data class Stopped(val chunksDone: Int, val totalChunks: Int) : NarrationResult()
+    /** The disk filled mid-chunk: the partial chunk is trimmed away, everything
+     *  durable is kept, and a later narrate() resumes once space is freed (PRD). */
+    data class StorageFull(val chunksDone: Int, val totalChunks: Int) : NarrationResult()
     data class Failed(val chunksDone: Int, val cause: Throwable) : NarrationResult()
 }
 
@@ -71,9 +74,11 @@ class NarrationEngine(
         val prior = store.load(orationId)
         var done = 0
         var narratedMs = 0L
+        var durableBytes = 0L
         if (prior != null && prior.chunksDone in 1..chunks.size && prior.audioBytes <= sink.length()) {
             sink.truncate(prior.audioBytes)   // drop any half-written trailing chunk
             done = prior.chunksDone
+            durableBytes = prior.audioBytes
             narratedMs = prior.narratedMs     // accumulate across resumes (fixes the server's undercount)
         } else {
             sink.truncate(0L)
@@ -89,12 +94,22 @@ class NarrationEngine(
                 sink.sync()                                   // durable BEFORE progress advances
                 narratedMs += clock() - t0
                 done = i + 1
-                store.save(orationId, Progress(done, sink.length(), narratedMs))
+                durableBytes = sink.length()
+                store.save(orationId, Progress(done, durableBytes, narratedMs))
                 onProgress(done, chunks.size)
             }
         } catch (t: Throwable) {
+            if (isStorageFull(t)) {
+                runCatching { sink.truncate(durableBytes) }   // shrinking a file needs no free space
+                return NarrationResult.StorageFull(done, chunks.size)
+            }
             return NarrationResult.Failed(done, t)            // store already matches the sink
         }
         return NarrationResult.Complete(chunks.size, sink.length(), narratedMs)
     }
+
+    private fun isStorageFull(t: Throwable): Boolean =
+        generateSequence(t) { it.cause }.any { e ->
+            e is java.io.IOException && e.message.orEmpty().let { "ENOSPC" in it || "No space left" in it }
+        }
 }

@@ -11,9 +11,11 @@ package page.stephens.sotto.shell.service
 
 import android.content.Intent
 import android.net.Uri
+import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
@@ -49,6 +51,7 @@ class NarrationService : MediaSessionService() {
     private val narratingId = AtomicReference<String?>(null)
     @Volatile private var playingId: String? = null
 
+    @OptIn(UnstableApi::class)   // ADTS constant-bitrate seeking is Media3 "unstable" API
     override fun onCreate() {
         super.onCreate()
         db = SottoDatabase.open(this)
@@ -84,7 +87,7 @@ class NarrationService : MediaSessionService() {
     private fun startNarration(id: String) {
         if (!narratingId.compareAndSet(null, id)) {
             if (narratingId.get() != id) scope.launch {
-                JobLog(db.joblog()).log("error", "narration busy", id, "single worker; queueing is Phase 3")
+                JobLog(db.joblog()).log("queued", db.orations().byId(id)?.title ?: id, id, "waiting for the current narration")
             }
             return
         }
@@ -116,6 +119,11 @@ class NarrationService : MediaSessionService() {
                     is NarrationResult.Stopped -> {
                         dao.setStatus(id, "STOPPED", System.currentTimeMillis())
                         log.log("stopped", row.title, id, "${result.chunksDone}/${result.totalChunks}")
+                    }
+                    is NarrationResult.StorageFull -> {
+                        // PRD edge case: stop gracefully, keep the partial, say why.
+                        dao.setStatus(id, "STOPPED", System.currentTimeMillis(), STORAGE_FULL)
+                        log.log("stopped", row.title, id, "storage full at ${result.chunksDone}/${result.totalChunks}")
                     }
                     is NarrationResult.Failed -> {
                         dao.setStatus(id, "ERROR", System.currentTimeMillis(), result.cause.message)
@@ -234,5 +242,6 @@ class NarrationService : MediaSessionService() {
         const val ACTION_DELETE = "page.stephens.sotto.DELETE"
         const val EXTRA_ID = "orationId"
         const val EXTRA_MINUTES = "minutes"
+        const val STORAGE_FULL = "Storage full - free some space, then tap to resume"
     }
 }

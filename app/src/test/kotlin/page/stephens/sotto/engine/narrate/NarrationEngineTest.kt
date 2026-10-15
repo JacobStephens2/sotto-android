@@ -38,6 +38,23 @@ private class MemorySink : AudioSink {
     override fun sync() { synced = data.size.toLong() }
 }
 
+/** Writes half of the Nth append, then fails the way a full disk does; later
+ *  appends succeed again (the user freed space). */
+private class DiskFillsSink(private val failOnAppend: Int) : AudioSink {
+    var data = ByteArray(0)
+    private var appends = 0
+    override fun length() = data.size.toLong()
+    override fun truncate(toBytes: Long) { data = data.copyOf(toBytes.toInt()) }
+    override fun sync() {}
+    override fun append(bytes: ByteArray) {
+        if (++appends == failOnAppend) {
+            data += bytes.copyOf(bytes.size / 2)
+            throw java.io.IOException("write failed: ENOSPC (No space left on device)")
+        }
+        data += bytes
+    }
+}
+
 private class MemoryStore : ProgressStore {
     val map = HashMap<String, Progress>()
     override fun load(orationId: String) = map[orationId]
@@ -157,5 +174,37 @@ class NarrationEngineTest {
         val r = NarrationEngine(FakeSynth(), IdentityEncoder, store, clock)
             .narrate("o", text, "af_heart", sink, chunkLimit = 200)
         assertTrue((r as NarrationResult.Complete).narratedMs > afterStop)
+    }
+
+    @Test
+    fun `storage full stops gracefully and keeps the durable partial`() {
+        // PRD edge case: the disk fills mid-narration. The half-written chunk is
+        // dropped, everything durable stays, and resume later is byte-identical.
+        val (ref, _) = engine()
+        val refSink = MemorySink()
+        ref.narrate("ref", text, "af_heart", refSink, chunkLimit = 200)
+
+        val store = MemoryStore()
+        val sink = DiskFillsSink(failOnAppend = 4)
+        val r = NarrationEngine(FakeSynth(), IdentityEncoder, store)
+            .narrate("o", text, "af_heart", sink, chunkLimit = 200)
+        assertTrue(r is NarrationResult.StorageFull)
+        assertEquals(3, (r as NarrationResult.StorageFull).chunksDone)
+        assertEquals(store.map["o"]!!.audioBytes, sink.length())
+
+        NarrationEngine(FakeSynth(), IdentityEncoder, store)
+            .narrate("o", text, "af_heart", sink, chunkLimit = 200)
+        assertArrayEquals(refSink.data, sink.data)
+    }
+
+    @Test
+    fun `an ordinary failure is not mistaken for storage full`() {
+        val failing = object : Synthesizer {
+            override val sampleRate = 24000
+            override fun synthesize(text: String, voiceId: String): FloatArray = error("model blew up")
+        }
+        val r = NarrationEngine(failing, IdentityEncoder, MemoryStore())
+            .narrate("o", text, "af_heart", MemorySink(), chunkLimit = 200)
+        assertTrue(r is NarrationResult.Failed)
     }
 }

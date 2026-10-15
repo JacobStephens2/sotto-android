@@ -50,7 +50,16 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
       generate_voices_bin.py - af_heart=3; early builds spoke af_alloy=0);
       calibrated estimate (median of completed orations) - 2026-06-12
 - [x] About: provenance + no-network claim + on-device activity log - 2026-06-12
-- [ ] PRD edge cases: storage-full, thermal catch-up, queueing, encoding
+- [x] PRD edge cases (code + JVM/emulator verified) - 2026-10-15:
+      storage-full = NarrationResult.StorageFull, partial trimmed to the last
+      durable chunk, STOPPED with the cause shown, resume byte-identical;
+      queueing = FIFO single worker (already in place); thermal catch-up =
+      playhead governor + "Catching up" (already in place); encoding/intake =
+      Intake (UTF-8 w/ replacement, BOM dropped, empty refused, 400 KB cap),
+      shared/opened .txt/.md files (PRD F1). Still needs the on-device pass
+      (storage-full and thermal can't be produced on the emulator honestly).
+- [x] Lint in CI; fixed a crash on Android 10-13 (TextPipeline used
+      Matcher.appendReplacement(StringBuilder), API 34) - 2026-10-15
 
 ## Phase 4 - release 1.0
 

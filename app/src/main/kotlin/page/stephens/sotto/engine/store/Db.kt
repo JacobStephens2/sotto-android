@@ -48,7 +48,7 @@ data class JobLogEntity(
     val at: Long,
     val orationId: String?,
     val title: String,
-    val event: String,    // created|started|resumed|chunk-done|stopped|completed|error|deleted|exported|renamed
+    val event: String,    // created|queued|started|resumed|chunk-done|stopped|completed|error|deleted|exported|renamed
     val detail: String,
 )
 

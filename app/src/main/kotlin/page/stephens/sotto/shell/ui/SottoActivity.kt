@@ -9,6 +9,7 @@ package page.stephens.sotto.shell.ui
 import android.content.ComponentName
 import android.content.Intent
 import android.media.MediaPlayer
+import android.net.Uri
 import android.widget.Toast
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -16,6 +17,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.IntentCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -73,6 +75,7 @@ import page.stephens.sotto.engine.store.JobLog
 import page.stephens.sotto.engine.store.JobLogEntity
 import page.stephens.sotto.engine.store.OrationEntity
 import page.stephens.sotto.engine.store.SottoDatabase
+import page.stephens.sotto.engine.text.Intake
 import page.stephens.sotto.engine.text.Titles
 import page.stephens.sotto.shell.service.NarrationService
 import java.io.File
@@ -113,8 +116,7 @@ class SottoActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         db = SottoDatabase.open(this)
-        val sharedIn = if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain")
-            intent.getStringExtra(Intent.EXTRA_TEXT) else null
+        val sharedIn = sharedText(intent)
         setContent {
             SottoTheme {
                 var screen by remember {
@@ -132,7 +134,7 @@ class SottoActivity : ComponentActivity() {
                         onAccount = if (sync != null) ({ screen = Screen.Account }) else null,
                         onLibrary = if (sync != null) ({ refreshLibrary() }) else null)
                     is Screen.Compose -> ComposeScreen(
-                        onContinue = { text -> screen = Screen.Confirm(text) },
+                        onContinue = { text -> accepted(text)?.let { screen = Screen.Confirm(it) } },
                         onBack = { screen = Screen.Library })
                     is Screen.Confirm -> ConfirmScreen(s.text,
                         onDone = { screen = Screen.Library })
@@ -141,6 +143,36 @@ class SottoActivity : ComponentActivity() {
                     is Screen.Account -> AccountScreen(onBack = { screen = Screen.Library })
                 }
             }
+        }
+    }
+
+    /** PRD F1: shared text, a shared text file, or a .md/.txt opened with Sotto.
+     *  Files decode leniently (Intake.read), so any encoding narrates. */
+    private fun sharedText(i: Intent?): String? {
+        val uri = when (i?.action) {
+            Intent.ACTION_SEND -> i.getStringExtra(Intent.EXTRA_TEXT)?.let { return accepted(it) }
+                ?: IntentCompat.getParcelableExtra(i, Intent.EXTRA_STREAM, Uri::class.java)
+            Intent.ACTION_VIEW -> i.data
+            else -> return null
+        } ?: return accepted("")
+        return readShared(uri)?.let(::accepted) ?: null.also {
+            Toast.makeText(this, "Couldn't read that file", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun readShared(uri: Uri): String? =
+        runCatching { contentResolver.openInputStream(uri)?.use(Intake::read) }.getOrNull()
+
+    /** PRD F2 and the empty-share edge case: refuse with a clear message and
+     *  create no entry. */
+    private fun accepted(raw: String): String? = when (val c = Intake.check(raw)) {
+        is Intake.Checked.Ok -> c.text
+        Intake.Checked.Empty -> null.also {
+            Toast.makeText(this, "Nothing to narrate - the text was empty", Toast.LENGTH_LONG).show()
+        }
+        is Intake.Checked.TooLarge -> null.also {
+            Toast.makeText(this, "Too long to narrate: ${c.bytes / 1024} KB (the limit is 400 KB)",
+                Toast.LENGTH_LONG).show()
         }
     }
 
@@ -385,7 +417,8 @@ class SottoActivity : ComponentActivity() {
     else when (o.status) {
         "NARRATING" -> "Narrating · ${o.chunksDone} / ${o.chunksTotal ?: "?"}"
         "QUEUED" -> "Queued" + if (o.chunksDone > 0) " · resumes from chunk ${o.chunksDone}" else ""
-        "STOPPED" -> "Stopped at ${o.chunksDone} / ${o.chunksTotal ?: "?"} · tap to resume"
+        "STOPPED" -> o.errorMessage?.let { "Stopped at ${o.chunksDone} / ${o.chunksTotal ?: "?"} · $it" }
+            ?: "Stopped at ${o.chunksDone} / ${o.chunksTotal ?: "?"} · tap to resume"
         "ERROR" -> "Failed: ${o.errorMessage ?: "unknown"} · tap to retry"
         else -> "${fmtSecs(if (o.audioDurationMs > 0) o.audioDurationMs / 1000 else o.audioBytes * 8 / 64_000)} · ${o.words} words" +
             (if (o.serverName != null) " · synced" else "")
@@ -540,7 +573,8 @@ class SottoActivity : ComponentActivity() {
                 Text(when {
                     catchingUp -> "Catching up - the narrator is just behind you..."
                     o.status == "NARRATING" -> "Narrating · chunk ${o.chunksDone} / ${o.chunksTotal ?: "?"}"
-                    o.status == "STOPPED" -> "Stopped at chunk ${o.chunksDone} / ${o.chunksTotal ?: "?"}"
+                    o.status == "STOPPED" -> "Stopped at chunk ${o.chunksDone} / ${o.chunksTotal ?: "?"}" +
+                        (o.errorMessage?.let { " · $it" } ?: "")
                     else -> "${o.words} words"
                 }, style = MaterialTheme.typography.bodyMedium)
                 if (o.status == "NARRATING" && (o.chunksTotal ?: 0) > 0) {
@@ -597,6 +631,7 @@ class SottoActivity : ComponentActivity() {
                 }
                 // Read-along: the source is written in full at creation, so the
                 // whole text is readable here even while it's still synthesizing.
+                @Suppress("ProduceStateDoesNotAssignValue")   // lint false positive: value is assigned
                 val source by produceState("", id, o.downloaded) {
                     value = withContext(Dispatchers.IO) {
                         runCatching { File(filesDir, "orations/$id/source.md").readText() }.getOrDefault("")
@@ -697,13 +732,21 @@ class SottoActivity : ComponentActivity() {
         }) { pad ->
             LazyColumn(Modifier.padding(pad).padding(16.dp)) {
                 item {
+                    // PRD S5: the claim must match the build it appears in.
                     Text(
-                        "Sotto narrates documents entirely on this device. The voice is " +
+                        "Sotto narrates documents on this device. The voice is " +
                         "synthetic, produced by Kokoro-82M - an openly licensed (Apache-2.0) " +
                         "model trained on documented public-domain and permissively licensed " +
-                        "audio. Nothing you share with Sotto leaves the phone: this build " +
-                        "holds no INTERNET permission, which anyone can verify with " +
-                        "`aapt dump permissions` on the APK.\n",
+                        "audio. " + if (sync == null)
+                            "Nothing you share with Sotto leaves the phone: this build " +
+                            "holds no INTERNET permission, which anyone can verify with " +
+                            "`aapt dump permissions` on the APK.\n"
+                        else
+                            "This build can reach the network, only for an account you " +
+                            "connect: it syncs your library with the Sotto server you name, " +
+                            "and if you switch on server narration for an oration, it sends " +
+                            "that text to your server, which narrates it with OpenAI voices. " +
+                            "Nothing else leaves the phone.\n",
                         style = MaterialTheme.typography.bodyMedium)
                     Text("Activity log (stays on this device)",
                         style = MaterialTheme.typography.titleSmall)
