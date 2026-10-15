@@ -39,7 +39,8 @@ the source public (repo public 2026-10-15); release.yml embeds the
 - [ ] Data Safety form, per flavor: `local` - "no data collected, no data
   shared," accurate because of ADR-004. `sync` - declare account credentials
   (email) and user-content upload, transmitted only to the user-configured
-  server; no third parties. No WebView disclosure needed (council flag applied:
+  server; if server narration ships (ADR-008), text the user opts to narrate
+  on the server is shared with OpenAI via that server. No WebView disclosure needed (council flag applied:
   that finding was for the TWA product, not this one). If only one listing is
   published, list the `local` flavor and offer `sync` via GitHub.
 - [ ] Account deletion mechanism: **N/A - no accounts exist.** (The council's

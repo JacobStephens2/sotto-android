@@ -21,3 +21,5 @@ Index:
 - ADR-004: No INTERNET permission in v1; the manifest is the privacy claim
 - ADR-005: Model bundled in the APK; arm64-v8a only; minSdk 29
 - ADR-006: Sideload-first distribution via GitHub releases; Play deferred
+- ADR-007: Two build flavors - `local` (no network) and `sync` (opt-in server account)
+- ADR-008: `sync` may ask the user's server to narrate an oration (OpenAI), opt-in per oration

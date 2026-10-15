@@ -1,6 +1,6 @@
 # ADR-007: Two build flavors - `local` (no network, flagship claim) and `sync` (opt-in server account)
 
-Status: accepted
+Status: accepted; amended by ADR-008 (opt-in server narration)
 Date: 2026-06-12
 
 ## Decision
