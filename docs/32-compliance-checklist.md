@@ -7,22 +7,30 @@ Play listing is pursued).
 
 ## [1.0] Sideload release
 
-- [ ] **AI-transparency disclosure** - About screen states the voice is
+- [x] **AI-transparency disclosure** - About screen states the voice is
   synthetic, produced on-device by Kokoro-82M; names the model's Apache-2.0
   license and documented training-data provenance. (Same honesty bar as the
   sotto server's /about.)
-- [ ] **License compliance** - bundle attributions: Kokoro-82M (Apache-2.0),
+- [x] **License compliance** - bundle attributions: Kokoro-82M (Apache-2.0),
   sherpa-onnx (Apache-2.0), espeak-ng (GPL-3.0 - verify linkage form and
   obligations before release; this is the one third-party license that needs
   actual review), Media3, and the voice-embedding files' terms.
-- [ ] **App license** decided and committed (repo-licensing conventions).
-- [ ] **README claims verifiable** - the no-network claim ships with its
+- [x] **App license** decided and committed (repo-licensing conventions).
+- [x] **README claims verifiable** - the no-network claim ships with its
   verification command (`aapt dump permissions`); release notes include the
   output (31-release-cicd-plan.md).
-- [ ] **Privacy policy** - one page, hosted with the repo: "this app collects
+- [x] **Privacy policy** - one page, hosted with the repo: "this app collects
   nothing and transmits nothing; it cannot - here's the proof." Not legally
   required for sideload, but it preempts the Play item and is a marketing asset
   for this particular app.
+
+Verified 2026-10-15: About states the synthetic voice and Kokoro-82M's license
+and provenance, flavor-correct (the `sync` build names the opt-in server/OpenAI
+path); ATTRIBUTIONS.md covers Kokoro-82M (voices.bin ships in the same
+Apache-2.0 release), sherpa-onnx, espeak-ng, ONNX Runtime, AndroidX/Media3 and
+both fonts; espeak-ng's GPL-3.0 is met by licensing the whole app GPL-3.0 with
+the source public (repo public 2026-10-15); release.yml embeds the
+`aapt dump permissions` proof; PRIVACY.md covers both builds.
 
 ## [Play] Only if a Play listing is pursued (post-1.0 decision)
 

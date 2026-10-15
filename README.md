@@ -24,7 +24,7 @@ Two artifacts per release (see `docs/adr/ADR-007`):
 
 | | `sotto-local` | `sotto-sync` |
 |---|---|---|
-| Narration | on-device | on-device |
+| Narration | on-device | on-device; optionally on your server with OpenAI voices, per oration, if your account allows |
 | Network | none - no INTERNET permission | your own Sotto server, opt-in, library sync only |
 
 ## What it does
