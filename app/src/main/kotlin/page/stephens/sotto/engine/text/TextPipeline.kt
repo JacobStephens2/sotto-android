@@ -79,9 +79,15 @@ object TextPipeline {
         }
         var text = out.joinToString("\n")
         text = CIRCLED.matcher(text).let { m ->
+            // Spliced by hand: Matcher.appendReplacement/appendTail(StringBuilder)
+            // are API 34 on Android and crash every narration on minSdk 29-33.
             val sb = StringBuilder()
-            while (m.find()) m.appendReplacement(sb, " item " + (m.group()[0].code - 0x245F))
-            m.appendTail(sb); sb.toString()
+            var last = 0
+            while (m.find()) {
+                sb.append(text, last, m.start()).append(" item ").append(m.group()[0].code - 0x245F)
+                last = m.end()
+            }
+            sb.append(text, last, text.length).toString()
         }
         text = text.sub(MD_FILE, "$1")
         text = text.replace("§", "section ").replace("→", " to ").replace("↔", " and ")
