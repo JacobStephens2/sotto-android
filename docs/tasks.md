@@ -63,6 +63,9 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
 - [x] License DECIDED: GPL-3.0 (espeak-ng inside sherpa-onnx is GPL-3.0, so
       the combined work is copyleft regardless; matches app-repo conventions).
       LICENSE + ATTRIBUTIONS.md committed - 2026-06-12
+- [x] Repo public (pre-flip audit: gitleaks clean over full history, no
+      keystore/credentials ever committed, CI secrets only reachable from
+      maintainer-pushed v* tags) - 2026-10-15
 - [ ] Publish `local` + `sync` artifacts together - GitHub release (decided:
       sync is in 1.0, so Phase 5 completes first)
 

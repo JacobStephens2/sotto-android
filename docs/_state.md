@@ -2,7 +2,7 @@
 
 Phase: **Phase 1 nearly complete (2026-06-12): TextPipeline, NarrationEngine, Room store, FileAudioSink, SherpaSynthesizer wiring, instrumented resume test, CI green.** v0.4.1 (2026-06-13): Player screen now shows the full source text (scrollable, weighted) readable DURING synthesis - emulator-verified on a NARRATING oration. fp32 ear-test: ring GONE (fp32 wins); making it default is pending an on-device RTF check.
 
-Phase 5 SYNC BUILT + LIVE-VERIFIED 2026-06-12 (0.4.0): server /api/v1 deployed (token auth, library CRUD, .aac first-class web-wide, account-page token revocation); app sync flavor real (stdlib HttpURLConnection client, EncryptedSharedPreferences token, Account screen, server-row mirror w/ download-on-tap, upload from the sheet, rename LWW). E2E on emulator against sotto.stephens.page, both directions. **1.0 is unblocked: remaining = repo public + v1.0.0 tag + compliance [1.0] ticks.**
+Phase 5 SYNC BUILT + LIVE-VERIFIED 2026-06-12 (0.4.0): server /api/v1 deployed (token auth, library CRUD, .aac first-class web-wide, account-page token revocation); app sync flavor real (stdlib HttpURLConnection client, EncryptedSharedPreferences token, Account screen, server-row mirror w/ download-on-tap, upload from the sheet, rename LWW). E2E on emulator against sotto.stephens.page, both directions. **1.0 is unblocked: remaining = v1.0.0 tag + compliance [1.0] ticks.** Repo made public 2026-10-15 (gitleaks clean over full history).
 
 Phase 4 release machinery BUILT 2026-06-12: local/sync flavors real (ADR-007; sync currently = local + INTERNET, Phase 5 fills it), signed release pipeline (release.yml on v* tags; notes embed the aapt proof + checksums), GPL-3.0 license decided (espeak-ng linkage), README/PRIVACY/ATTRIBUTIONS, adaptive icon, keystore w/ SOPS-encrypted password backup. 1.0 publish still gated on Phase 5 sync (decided: sync ships at 1.0).
 
@@ -11,7 +11,7 @@ Phase 3 surface BUILT 2026-06-12 (0.3.0): voice picker w/ previews + corrected a
 Phase 2 vertical slice BUILT 2026-06-12 (0.2.0-slice): Compose SottoActivity (share target -> Confirm -> Library w/ live Flow), NarrationService (one Media3 service owning player + narration; ADTS constant-bitrate seeking; listen-now autoplay; playhead governor; requeue-on-create recovery). applicationId is now page.stephens.sotto (forever id). Emulator end-to-end verified by state: share intent -> derived title -> narrate -> file growth -> MediaSession metadata -> COMPLETE library row. Remaining slice gate: a week of Jacob's real daily use. Voice feedback: af_heart mapping CONFIRMED warm; int8 ring persists (fp32 A/B still open).
 
 Phase 1 gate: **kill/resume PROVEN on hardware 2026-06-12** - Jacob ran the gate to chunk 8/324, killed the process, re-tapped: 'resuming from chunk 8' through the full real stack (Room + truncate + Kokoro + ADTS). 324 chunks matches the server's count for the same document (pipeline parity in the wild). Remaining: let the gate run to GATE COMPLETE (~4-5 h synthesis; resumable in any number of sittings - every kill/charge break just resumes). Then Phase 2 (vertical slice).
-Updated: 2026-06-12
+Updated: 2026-10-15
 
 ## Decisions snapshot
 
