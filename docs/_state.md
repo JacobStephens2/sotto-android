@@ -1,5 +1,10 @@
 # _state.md - sotto-android session handoff
 
+2026-11-11: ADR-008. Narrate, play, stop narration, sleep timer, and delete move
+to non-exported `InAppNarrationService` (UI is the caller). Exported
+`NarrationService` ignores those actions and still binds the Media3 session.
+JVM coverage in `NarrationCommandsTest`.
+
 Phase: **Phase 1 nearly complete (2026-06-12): TextPipeline, NarrationEngine, Room store, FileAudioSink, SherpaSynthesizer wiring, instrumented resume test, CI green.** v0.4.1 (2026-06-13): Player screen now shows the full source text (scrollable, weighted) readable DURING synthesis - emulator-verified on a NARRATING oration. fp32 ear-test: ring GONE (fp32 wins); making it default is pending an on-device RTF check.
 
 Phase 5 SYNC BUILT + LIVE-VERIFIED 2026-06-12 (0.4.0): server /api/v1 deployed (token auth, library CRUD, .aac first-class web-wide, account-page token revocation); app sync flavor real (stdlib HttpURLConnection client, EncryptedSharedPreferences token, Account screen, server-row mirror w/ download-on-tap, upload from the sheet, rename LWW). E2E on emulator against sotto.stephens.page, both directions. **1.0 is unblocked: remaining = v1.0.0 tag + compliance [1.0] ticks.** Repo made public 2026-10-15 (gitleaks clean over full history).
@@ -20,6 +25,7 @@ Updated: 2026-10-15
 - Plain Kotlin/Compose, Android-only (ADR-001)
 - sherpa-onnx + Kokoro-82M int8, on-device, 7 server-parity voices (ADR-002)
 - Streaming chunk-ahead-of-playhead in one MediaSessionService (ADR-003)
+- In-app narration commands only on a non-exported service (ADR-008)
 - `local` flavor = no INTERNET, flagship claim (ADR-004); `sync` flavor =
   opt-in sotto-server account/library sync (ADR-007, contract in
   12-api-contract.md)

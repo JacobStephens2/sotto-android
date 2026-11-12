@@ -77,6 +77,7 @@ import page.stephens.sotto.engine.store.OrationEntity
 import page.stephens.sotto.engine.store.SottoDatabase
 import page.stephens.sotto.engine.text.Intake
 import page.stephens.sotto.engine.text.Titles
+import page.stephens.sotto.shell.service.InAppNarrationService
 import page.stephens.sotto.shell.service.NarrationService
 import java.io.File
 import java.util.UUID
@@ -177,14 +178,14 @@ class SottoActivity : ComponentActivity() {
     }
 
     private fun svc(action: String, id: String? = null, minutes: Int? = null) =
-        startService(Intent(this, NarrationService::class.java).setAction(action).apply {
-            id?.let { putExtra(NarrationService.EXTRA_ID, it) }
-            minutes?.let { putExtra(NarrationService.EXTRA_MINUTES, it) }
+        startService(Intent(this, InAppNarrationService::class.java).setAction(action).apply {
+            id?.let { putExtra(InAppNarrationService.EXTRA_ID, it) }
+            minutes?.let { putExtra(InAppNarrationService.EXTRA_MINUTES, it) }
         })
 
     private fun openOration(o: OrationEntity) = when (o.status) {
-        "QUEUED", "STOPPED", "ERROR" -> svc(NarrationService.ACTION_NARRATE, o.id)
-        else -> svc(NarrationService.ACTION_PLAY, o.id)
+        "QUEUED", "STOPPED", "ERROR" -> svc(InAppNarrationService.ACTION_NARRATE, o.id)
+        else -> svc(InAppNarrationService.ACTION_PLAY, o.id)
     }
 
     // ---------------------------------------------------------------- Confirm
@@ -319,7 +320,7 @@ class SottoActivity : ComponentActivity() {
                 words = text.trim().split(Regex("\\s+")).size, chunksTotal = null,
                 createdAt = now, updatedAt = now))
             JobLog(db.joblog()).log("created", title, id, "voice=$voice")
-            svc(NarrationService.ACTION_NARRATE, id)
+            svc(InAppNarrationService.ACTION_NARRATE, id)
         }
     }
 
@@ -485,7 +486,7 @@ class SottoActivity : ComponentActivity() {
                 })
             ListItem(headlineContent = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                 modifier = Modifier.clickable {
-                    svc(NarrationService.ACTION_DELETE, o.id); onDismiss()
+                    svc(InAppNarrationService.ACTION_DELETE, o.id); onDismiss()
                 })
             Spacer(Modifier.height(24.dp))
         }
@@ -595,9 +596,9 @@ class SottoActivity : ComponentActivity() {
                     Button(onClick = { controller?.seekTo((positionMs - 15_000).coerceAtLeast(0)) }) { Text("« 15s") }
                     Button(onClick = {
                         controller?.let { c ->
-                            if (c.currentMediaItem?.mediaId != id) svc(NarrationService.ACTION_PLAY, id)
+                            if (c.currentMediaItem?.mediaId != id) svc(InAppNarrationService.ACTION_PLAY, id)
                             else if (playing) c.pause() else c.play()
-                        } ?: svc(NarrationService.ACTION_PLAY, id)
+                        } ?: svc(InAppNarrationService.ACTION_PLAY, id)
                     }) { Text(if (playing) "Pause" else "Play") }
                     Button(onClick = { controller?.seekTo(positionMs + 15_000) }) { Text("15s »") }
                 }
@@ -618,14 +619,14 @@ class SottoActivity : ComponentActivity() {
                             onClick = {
                                 val next = if (sleepLeft == m) 0 else m
                                 sleepLeft = if (next == 0) null else next
-                                svc(NarrationService.ACTION_SLEEP_TIMER, minutes = next)
+                                svc(InAppNarrationService.ACTION_SLEEP_TIMER, minutes = next)
                             },
                             label = { Text("$m min") })
                     }
                 }
                 if (o.status == "NARRATING") {
                     Spacer(Modifier.height(20.dp))
-                    TextButton(onClick = { svc(NarrationService.ACTION_STOP_NARRATION) }) {
+                    TextButton(onClick = { svc(InAppNarrationService.ACTION_STOP_NARRATION) }) {
                         Text("Stop narrating (keeps what's done)")
                     }
                 }

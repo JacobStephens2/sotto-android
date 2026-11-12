@@ -13,6 +13,7 @@ share sheet / file open / paste
         ▼
 ┌──────────────────────────── app (shell) ───────────────────────────┐
 │  Compose UI: Confirm · Player · Library · About                    │
+│  InAppNarrationService (not exported, ADR-008)                     │
 │  NarrationService (foreground, mediaPlayback type)                 │
 │    ├── NarrationEngine (engine)                                    │
 │    │     clean_markdown port → chunk port → SynthesisQueue         │
@@ -57,7 +58,11 @@ share sheet / file open / paste
   `mediaPlayback` while playing; synthesis-only (queued, screen off, not
   listening) runs as expedited WorkManager work that checkpoints per chunk and
   tolerates being deferred - it never needs to outrun Doze because resume is
-  free (ADR-003 records this split).
+  free (ADR-003 records this split). It is exported so the system can bind the
+  session, and it ignores in-app commands (ADR-008).
+- **InAppNarrationService** - not exported, no intent-filter. The UI starts it
+  for narrate, play, stop narration, the sleep timer, and delete. It hands
+  those to `NarrationService` inside the process. Another app cannot start it.
 - **Playhead governor** - pauses playback at the synthesis frontier ("catching
   up") when synthesis falls behind; resumes when buffer ≥ ~20 s ahead.
 - **UI** - four screens (Confirm, Player, Library, About), Material 3, single

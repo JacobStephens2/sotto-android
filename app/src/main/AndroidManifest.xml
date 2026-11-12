@@ -60,5 +60,11 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <!-- Narrate, play, stop, sleep timer, and delete. No intent-filter and
+             not exported, so only this app (the UI) can start it. -->
+        <service
+            android:name="page.stephens.sotto.shell.service.InAppNarrationService"
+            android:exported="false" />
     </application>
 </manifest>
