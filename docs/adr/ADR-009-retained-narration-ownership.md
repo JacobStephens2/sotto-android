@@ -34,7 +34,10 @@ ordinary work is active or queued returns Busy without stopping it. Ordinary
 requests during diagnostics persist in FIFO order and wait for the diagnostic
 writer and model to drain. Superseding a diagnostic, changing threads, Stop,
 or leaving Lab fences that run's callbacks and cooperatively stops it. A thread
-reload completes only after blocking work and model close. Media-owner
+reload of an admitted diagnostic remains available with ordinary work waiting
+and completes only after blocking work and model close. Explicit Stop retains
+the current run's terminal measurement summary or gate verdict, while fencing
+progress/audio. Supersession, detach, and deletion fence terminal events too. Media-owner
 replacement does not stop, recover, claim, or fail an attached Lab run.
 
 The model factory constructs and closes managed synthesizers inside the same

@@ -131,6 +131,7 @@ class NarrationCoordinator(
         val reply: CompletableDeferred<DiagnosticResult>,
     ) {
         val stop = AtomicBoolean(false)
+        val terminalAllowed = AtomicBoolean(true)
     }
 
     private class Deletion(
@@ -334,7 +335,9 @@ class NarrationCoordinator(
             return
         }
         val start = request is DiagnosticRequest.Gate || request is DiagnosticRequest.Measure
-        if (active != null || db.orations().nextQueued() != null || pendingDeletes.isNotEmpty()) {
+        val controlsAdmittedRun = request is DiagnosticRequest.Threads &&
+            (diagnostic?.owner === lab || pendingDiagnostic?.owner === lab)
+        if (active != null || (!controlsAdmittedRun && db.orations().nextQueued() != null) || pendingDeletes.isNotEmpty()) {
             message.reply.complete(DiagnosticResult.Busy)
             return
         }
@@ -475,7 +478,10 @@ class NarrationCoordinator(
         deleting.add(id)
         active?.takeIf { it.id == id }?.stop?.set(true)
         if (id == "gate") {
-            diagnostic?.takeIf { it.request is DiagnosticRequest.Gate }?.stop?.set(true)
+            diagnostic?.takeIf { it.request is DiagnosticRequest.Gate }?.let {
+                it.terminalAllowed.set(false)
+                it.stop.set(true)
+            }
             pendingDiagnostic?.takeIf { it.request is DiagnosticRequest.Gate }?.let {
                 it.stop.set(true)
                 it.reply.complete(DiagnosticResult.Superseded)
@@ -575,18 +581,23 @@ class NarrationCoordinator(
             .format((diagnosticEnvironment.elapsedMs() - started) / 1000.0)))
         val stopped = { run.stop.get() || !run.owner.valid.get() }
         if (stopped()) return
+        val emit = { event: DiagnosticEvent -> postDiagnostic(run, event) }
+        val finish = { event: DiagnosticEvent -> postDiagnostic(run, event, terminal = true) }
         when (val request = run.request) {
-            is DiagnosticRequest.Gate -> execution.gate(request.bundledText, synth, stopped) { postDiagnostic(run, it) }
-            is DiagnosticRequest.Measure -> execution.measure(request, run.threads, synth, stopped) { postDiagnostic(run, it) }
+            is DiagnosticRequest.Gate -> execution.gate(request.bundledText, synth, stopped, emit, finish)
+            is DiagnosticRequest.Measure -> execution.measure(request, run.threads, synth, stopped, emit, finish)
             is DiagnosticRequest.Threads -> postDiagnostic(run, DiagnosticEvent.Status("Threads: ${run.threads} configured"))
             else -> error("Not an execution request")
         }
     }
 
-    private fun postDiagnostic(run: DiagnosticRun, event: DiagnosticEvent) {
+    private fun postDiagnostic(run: DiagnosticRun, event: DiagnosticEvent, terminal: Boolean = false) {
         scope.launch(callbackDispatcher) {
             synchronized(run.owner) {
-                if (run.owner.valid.get() && run.owner.latest.get() === run && !run.stop.get()) {
+                // Explicit Stop keeps its terminal report; replacement, detach
+                // and deletion still fence every event from the previous run.
+                if (run.owner.valid.get() && run.owner.latest.get() === run &&
+                    (!run.stop.get() || (terminal && run.terminalAllowed.get()))) {
                     run.owner.callback.get()?.invoke(event)
                 }
             }

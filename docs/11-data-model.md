@@ -116,6 +116,10 @@ removing files or progress; the append-only log remains.
   encoding, durable gate progress/log writes, and model close share the retained
   lane; replacement execution waits for all of them. Media-owner attachment
   neither recovers nor claims the active diagnostic run.
+- Threads can stop/reconfigure an admitted diagnostic even with ordinary work
+  waiting; Gate/Measure starts still return Busy. Explicit Stop retains the
+  current run's terminal measurement summary or gate verdict. Progress/audio
+  are fenced on Stop; supersession, detach, and deletion also fence terminal events.
 - Gate uses reserved ID `gate`, title `Phase 1 gate`, and voice `af_heart`.
   New runs fsync source text before row creation. Explicit legacy resumption
   writes the supplied bundled text if `source.md` is missing; otherwise saved

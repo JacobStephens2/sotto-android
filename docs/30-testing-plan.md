@@ -52,6 +52,8 @@ saved source, and legacy checkpoint recovery. Controlled adapters assert one
 model/generate lifetime, no premature release/mutation, and no late callback.
 Measurement tests use fixed clock/battery/thermal/memory observations and known
 arithmetic. Keep independent `NarrationEngine` durability/resume tests.
+`DiagnosticControlSpecRegressionTest` retains the review regressions for a
+stopped measurement summary and thread reload with waiting ordinary work.
 `DiagnosticResumeTest` exercises Room, real ADTS encoding, shared gate ownership,
 reset, legacy source fallback, process recovery, and byte-identical resume with
 crash garbage. Existing Room resume/migration instrumentation remains required.

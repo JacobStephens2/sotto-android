@@ -90,6 +90,22 @@ class NarrationCoordinatorTest {
     }
 
     @Test
+    fun `explicit gate Stop retains its terminal verdict after the durable chunk`() = runBlocking {
+        val verdict = kotlinx.coroutines.CompletableDeferred<String>()
+        val lab = coordinator.attachDiagnostics {
+            if (it is DiagnosticEvent.Line && it.text.startsWith("gate stopped at")) verdict.complete(it.text)
+        }
+        lab.request(DiagnosticRequest.Gate("Held gate. " + "More. ".repeat(400))).await()
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        lab.request(DiagnosticRequest.Stop).await()
+        assertEquals("NARRATING", db.orations().byId("gate")!!.status)
+        release.countDown()
+        assertTrue(withTimeout(5_000) { verdict.await() }.startsWith("gate stopped at 1/"))
+        assertEquals("STOPPED", db.orations().byId("gate")!!.status)
+        assertEquals(1, db.orations().byId("gate")!!.chunksDone)
+    }
+
+    @Test
     fun `measurement Stop drains generation before queued ordinary work starts`() = runBlocking {
         val lab = coordinator.attachDiagnostics()
         assertEquals(DiagnosticResult.Accepted,

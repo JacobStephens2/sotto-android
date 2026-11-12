@@ -125,6 +125,9 @@ in FIFO order and wait for the diagnostic to finish or cooperatively stop and
 drain. Thread reload and supersession fence old callbacks and wait for the
 previous writer and model. Ordinary narration keeps four threads; Lab selects
 2/3/4 threads with its original measurement sid 0 and gate voice mapping.
+Thread changes still control an admitted diagnostic when ordinary work waits.
+Explicit Stop retains its terminal summary/verdict while fencing progress and
+audio; supersession, detach, and deletion fence terminal callbacks as well.
 
 Command admission is serialized separately from blocking execution. Pending
 commands are considered before dispatch, so Stop accepted before dispatch

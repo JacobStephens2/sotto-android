@@ -56,7 +56,7 @@ class MainActivity : Activity() {
             setOnClickListener { request(DiagnosticRequest.Threads(when (threads) { 4 -> 2; 2 -> 3; else -> 4 })) }
         }
         val gate = Button(this).apply {
-            text = "PHASE 1 GATE (resume; long-press resets)"
+            text = "Phase 1 gate (resume; long-press resets)"
             setOnClickListener {
                 val text = runCatching { assets.open("gate/encyclical.md").bufferedReader().use { it.readText() } }.getOrNull()
                 if (text == null) line("no gate text bundled (assets/gate/encyclical.md)")

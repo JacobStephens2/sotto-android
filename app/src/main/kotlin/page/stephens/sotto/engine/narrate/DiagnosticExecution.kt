@@ -17,7 +17,8 @@ internal class DiagnosticExecution(
     private val clock: () -> Long,
     private val environment: DiagnosticEnvironment,
 ) {
-    fun gate(text: String, synth: Synthesizer, stopped: () -> Boolean, emit: (DiagnosticEvent) -> Unit) {
+    fun gate(text: String, synth: Synthesizer, stopped: () -> Boolean,
+        emit: (DiagnosticEvent) -> Unit, finish: (DiagnosticEvent) -> Unit) {
         val dao = db.orations()
         val log = JobLog(db.joblog(), clock)
         val title = "Phase 1 gate"
@@ -26,9 +27,13 @@ internal class DiagnosticExecution(
             val directory = File(root, "gate").also { it.mkdirs() }
             val source = File(directory, "source.md")
             // Existing source wins over a different bundle on a later app version.
-            if (!source.exists()) FileOutputStream(source).use { output ->
-                output.write(text.toByteArray(Charsets.UTF_8))
-                output.fd.sync()
+            if (!source.exists()) {
+                val pending = File(directory, "source.md.pending")
+                FileOutputStream(pending).use { output ->
+                    output.write(text.toByteArray(Charsets.UTF_8))
+                    output.fd.sync()
+                }
+                check(pending.renameTo(source)) { "Could not save gate source" }
             }
             val cleaned = TextPipeline.cleanMarkdown(source.readText())
             val prior = dao.byId("gate")
@@ -72,7 +77,7 @@ internal class DiagnosticExecution(
                 }
                 is NarrationResult.Failed -> throw result.cause
             }
-            emit(DiagnosticEvent.Line(verdict))
+            finish(DiagnosticEvent.Line(verdict))
         } catch (t: Throwable) {
             dao.setStatus("gate", "ERROR", clock(), t.message)
             log.log("error", title, "gate", t.toString().take(160))
@@ -81,7 +86,7 @@ internal class DiagnosticExecution(
     }
 
     fun measure(request: DiagnosticRequest.Measure, threads: Int, synth: Synthesizer,
-        stopped: () -> Boolean, emit: (DiagnosticEvent) -> Unit) {
+        stopped: () -> Boolean, emit: (DiagnosticEvent) -> Unit, finish: (DiagnosticEvent) -> Unit) {
         val chunks = measurementChunks(request.text)
         emit(DiagnosticEvent.Line("start: ${request.text.trim().split(Regex("\\s+")).size} words/loop, ${chunks.size} chunks"))
         val battery0 = environment.batteryPct()
@@ -126,8 +131,8 @@ internal class DiagnosticExecution(
                 request.minutes > 0 && environment.elapsedMs() >= deadline -> "deadline reached"
                 else -> "loops done"
             })
-        emit(DiagnosticEvent.Measured(measurement))
-        emit(DiagnosticEvent.Line(measurement.summary()))
+        finish(DiagnosticEvent.Measured(measurement))
+        finish(DiagnosticEvent.Line(measurement.summary()))
     }
 
     // Keep the spike's sentence packing and limit, separate from the server pipeline.
