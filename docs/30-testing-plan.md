@@ -55,6 +55,8 @@ Measurement tests use fixed clock/battery/thermal/memory observations and known
 arithmetic. Keep independent `NarrationEngine` durability/resume tests.
 `DiagnosticControlSpecRegressionTest` retains the review regressions for a
 stopped measurement summary and thread reload with waiting ordinary work.
+`NarrationCommandsTest` exercises the actual Lab gate playback/reset controls
+and deletion followed by playback of a recreated gate in the same media owner.
 `DiagnosticResumeTest` exercises Room, real ADTS encoding, shared gate ownership,
 reset, legacy source fallback, process recovery, and byte-identical resume with
 crash garbage. Existing Room resume/migration instrumentation remains required.

@@ -46,7 +46,11 @@ sealed interface NarrationCommandResult {
     data class Failed(val message: String) : NarrationCommandResult
 }
 
-data class NarrationFacts(val activeId: String? = null, val stopping: Boolean = false)
+data class NarrationFacts(
+    val activeId: String? = null,
+    val stopping: Boolean = false,
+    val deletingIds: Set<String> = emptySet(),
+)
 
 // These callbacks run on the playback thread. They must return promptly; the
 // module supplies saved metadata so listen-now needs no second asynchronous read.
@@ -499,8 +503,10 @@ class NarrationCoordinator(
     }
 
     private fun finishDeletion(id: String, result: NarrationCommandResult) {
-        pendingDeletes.remove(id)?.replies?.forEach { it.complete(result) }
+        val replies = pendingDeletes.remove(id)?.replies
         deleting.remove(id)
+        updateFacts()
+        replies?.forEach { it.complete(result) }
     }
 
     private fun fenceGateCallbacks(run: DiagnosticRun?) {
@@ -513,6 +519,7 @@ class NarrationCoordinator(
     private fun execute(run: Run) {
         val row = db.orations().byId(run.id) ?: return
         val log = JobLog(db.joblog())
+        val outcomes = NarrationOutcomeRecorder(db.orations(), log, clock)
         try {
             if (run.stop.get() || !run.owner.valid.get()) {
                 db.orations().setStatus(row.id, "STOPPED", clock())
@@ -543,24 +550,9 @@ class NarrationCoordinator(
                             }
                         })
             }
-            when (result) {
-                is NarrationResult.Complete -> {
-                    db.orations().setStatus(row.id, "COMPLETE", clock())
-                    log.log("completed", row.title, row.id, "${result.chunks}ch ${result.audioBytes}B")
-                }
-                is NarrationResult.Stopped -> {
-                    db.orations().setStatus(row.id, "STOPPED", clock())
-                    log.log("stopped", row.title, row.id, "${result.chunksDone}/${result.totalChunks}")
-                }
-                is NarrationResult.StorageFull -> {
-                    db.orations().setStatus(row.id, "STOPPED", clock(), STORAGE_FULL)
-                    log.log("stopped", row.title, row.id, "storage full at ${result.chunksDone}/${result.totalChunks}")
-                }
-                is NarrationResult.Failed -> throw result.cause
-            }
+            outcomes.record(row.id, row.title, result)
         } catch (t: Throwable) {
-            db.orations().setStatus(row.id, "ERROR", clock(), t.message)
-            log.log("error", row.title, row.id, t.toString().take(160))
+            outcomes.recordFailure(row.id, row.title, t)
         }
     }
 
@@ -611,7 +603,7 @@ class NarrationCoordinator(
     }
 
     private fun updateFacts() {
-        mutableFacts.value = NarrationFacts(active?.id, active?.stop?.get() ?: false)
+        mutableFacts.value = NarrationFacts(active?.id, active?.stop?.get() ?: false, deleting.toSet())
     }
 
     private fun sweepOrphans() {

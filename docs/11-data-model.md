@@ -89,6 +89,9 @@ Activity log. Never leaves the device.
   before its directory and logs the result. These are ordered operations,
   not a filesystem/Room transaction; success is reported only after removal.
   Startup retries orphan-directory cleanup after an interrupted deletion.
+  Observable deletion facts clear before completion is reported. Playback fences
+  the removed generation, allowing the reserved gate ID to be created and played
+  again without recreating the Android media owner.
 
 ### Ordinary admission results
 

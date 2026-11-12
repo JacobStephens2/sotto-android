@@ -1,5 +1,46 @@
 # _state.md - sotto-android session handoff
 
+2026-11-12: Spec #14 whole-branch Standards and Spec review compares issue-14
+with `refs/remotes/origin/master` at
+`503cb5d95b0d2ff9670744548583b31b527faaf9`, including both landed Tickets.
+Standards raised one maintenance finding; Spec raised two playback findings.
+All three are addressed. Independent follow-up found no additional findings.
+Both axes read all 32 changed paths, with no generated exclusions, unread files,
+or skipped findings. Reports and counts are in `.thirdshift-review-WET1vD/`.
+
+The exact gate-playback regressions each failed before their fix and passed
+afterward; both remain in `NarrationCommandsTest`. Saved Lab gate playback now
+uses the existing non-exported in-app play command and media owner, so reset
+stops matching playback before removing audio. Coordinator deletion facts and
+per-ID playback deletion versions replace a permanent ID blacklist, allowing
+the reserved gate to be recreated and played without recreating the media
+owner. Shared Room fixtures clear after coordinator drain. Ordinary and gate
+execution share terminal status/log persistence in `NarrationOutcomeRecorder`,
+preserving existing outcomes, storage-full wording, and log details.
+
+Final validation passes: 81 JVM tests per flavor, including seven screenshot
+comparisons and four provenance checks each; both lint checks and debug/test
+APK builds; and both existing manifest guards. Local has no network permission;
+sync adds INTERNET only. Command:
+
+```sh
+./gradlew lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug assembleLocalDebugAndroidTest -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+Five selected API 34 x86_64 instrumentation tests pass with no failures: shared
+gate Room/ADTS byte-identical resume, ordinary Room resume, schema-v1 migration,
+and two interrupted queue/gate recovery cases. Command:
+
+```sh
+./gradlew connectedLocalDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=page.stephens.sotto.engine.DiagnosticResumeTest,page.stephens.sotto.engine.RoomResumeTest,page.stephens.sotto.engine.store.QueueMigrationTest,page.stephens.sotto.engine.store.InterruptedQueueRecoveryTest
+```
+
+The instrumentation uses deterministic synthesis and real Android AAC encoding.
+No new hardware measurement or emulator performance claim is made. PR #18 stays
+draft; thirdshift owns the later push and optional Security review.
+
+Earlier entries below describe earlier sessions.
+
 2026-11-12: Issue #16 completes retained process-wide ownership. Lab uses typed
 Gate/Measure/Threads/Stop/ResetGate requests on the same `NarrationCoordinator`
 as ordinary narration. Diagnostic starts return Busy while ordinary work is

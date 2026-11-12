@@ -3,6 +3,7 @@ package page.stephens.sotto.spike
 // Lab is a lifecycle caller of the retained narration worker.
 
 import android.app.Activity
+import android.content.Intent
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
@@ -23,6 +24,7 @@ import page.stephens.sotto.engine.narrate.AttachedDiagnostics
 import page.stephens.sotto.engine.narrate.DiagnosticEvent
 import page.stephens.sotto.engine.narrate.DiagnosticRequest
 import page.stephens.sotto.engine.narrate.DiagnosticResult
+import page.stephens.sotto.shell.service.InAppNarrationService
 import page.stephens.sotto.shell.service.NarrationCoordinatorProvider
 import java.io.File
 
@@ -74,10 +76,10 @@ class MainActivity : Activity() {
                 val audio = File(filesDir, "orations/gate/audio.aac")
                 if (!audio.exists()) line("no gate audio yet")
                 else runCatching {
-                    android.media.MediaPlayer().apply {
-                        setDataSource(audio.absolutePath); prepare(); start()
-                        line("playing gate audio (${audio.length() / 1048576}MB)")
-                    }
+                    startService(Intent(this@MainActivity, InAppNarrationService::class.java)
+                        .setAction(InAppNarrationService.ACTION_PLAY)
+                        .putExtra(InAppNarrationService.EXTRA_ID, "gate"))
+                    line("playing gate audio (${audio.length() / 1048576}MB)")
                 }.onFailure { line("play failed: $it") }
             }
         }

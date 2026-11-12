@@ -49,7 +49,7 @@ class NarrationService : MediaSessionService() {
     private lateinit var narrator: AttachedNarrator
     @Volatile private var destroyed = false
     private var playbackVersion = 0L
-    private val deletedIds = mutableSetOf<String>()
+    private val deletionVersions = mutableMapOf<String, Long>()
     @Volatile private var playingId: String? = null
 
     @OptIn(UnstableApi::class)   // ADTS constant-bitrate seeking is Media3 "unstable" API
@@ -67,7 +67,7 @@ class NarrationService : MediaSessionService() {
         narrator = NarrationCoordinatorProvider.get(this).attach(NarrationCallbacks(
             onAudioReady = { row -> if (playingId == null) playSaved(row) },
             onStopPlayback = { id ->
-                deletedIds.add(id)
+                deletionVersions[id] = (deletionVersions[id] ?: 0L) + 1
                 if (playingId == id) {
                     playbackVersion++
                     playingId = null
@@ -138,15 +138,15 @@ class NarrationService : MediaSessionService() {
     }
 
     private suspend fun startPlayback(id: String) {
-        val version = withContext(Dispatchers.Main) { playbackVersion }
+        val (version, deletionVersion) = withContext(Dispatchers.Main) { playbackVersion to deletionVersions[id] }
         val row = db.orations().byId(id) ?: return
         withContext(Dispatchers.Main) {
-            if (!destroyed && version == playbackVersion && id !in deletedIds) playSaved(row)
+            if (!destroyed && version == playbackVersion && deletionVersion == deletionVersions[id]) playSaved(row)
         }
     }
 
     private fun playSaved(row: OrationEntity) {
-        if (destroyed || row.id in deletedIds || row.audioBytes <= 0 || !audioFile(row.id).exists()) return
+        if (destroyed || row.id in narrator.facts.value.deletingIds || row.audioBytes <= 0 || !audioFile(row.id).exists()) return
         playbackVersion++
         playingId = row.id
         player.setMediaItem(mediaItem(row.id, row.title, audioFile(row.id)))
@@ -161,14 +161,15 @@ class NarrationService : MediaSessionService() {
         while (true) {
             delay(2000)
             val id = playingId ?: continue
-            val (pos, ended) = withContext(Dispatchers.Main) {
-                player.currentPosition to (player.playbackState == Player.STATE_ENDED)
+            val (pos, ended, version) = withContext(Dispatchers.Main) {
+                Triple(player.currentPosition, player.playbackState == Player.STATE_ENDED, playbackVersion)
             }
             if (pos > 0) db.orations().setPlayhead(id, pos, System.currentTimeMillis())
             if (ended && narrator.facts.value.activeId == id) {
                 val row = db.orations().byId(id) ?: continue
                 withContext(Dispatchers.Main) {
-                    if (destroyed || playingId != id || id in deletedIds) return@withContext
+                    if (destroyed || playingId != id || version != playbackVersion ||
+                        id in narrator.facts.value.deletingIds) return@withContext
                     player.setMediaItem(mediaItem(id, row.title, audioFile(id)))
                     player.prepare()
                     player.seekTo(pos)

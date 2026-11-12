@@ -46,6 +46,8 @@ share sheet / file open / paste
   narrator exposes `narrate(id)`, `stop()`, and `delete(id)` with typed
   `Deferred` outcomes, observable narration facts, and nonblocking detach.
   No caller receives the engine job, native model, or mutable stop predicate.
+  Ordinary and gate execution share terminal status/log persistence through an
+  internal outcome recorder; gate verdicts remain in diagnostic execution.
 - **Managed synthesizer seam** - construction, generation, and close happen
   within the coordinator's execution lane. The shell supplies sherpa-onnx's
   Kotlin/JNI adapter with the existing four-thread ordinary profile; tests
@@ -80,11 +82,16 @@ share sheet / file open / paste
   first-durable-audio event after fsync and saved progress, with attachment/run
   fencing. The governor persists the playhead and re-resolves a growing file
   when playback reaches its current end ("catching up"). Deletion invokes a
-  narrow callback to stop matching playback on the player's thread.
+  narrow callback to stop matching playback on the player's thread. Observable
+  deletion facts block playback until removal finishes; per-ID deletion versions
+  fence pending reads from the removed audio. Explicit playback can use a newly
+  created reserved gate in the same media-owner lifetime.
 - **Lab** - attaches to the same coordinator with typed gate, measurement,
   thread configuration, Stop, and reset requests. It displays Busy when ordinary
   work is active or queued. Lab retains controls, PCM playback, progress, and
   thermal/battery observations, with no model or inference executor of its own.
+  Saved gate playback uses the non-exported in-app play command and the existing
+  media owner, so gate reset and library deletion stop that playback too.
   Leaving Lab detaches and fences callbacks immediately; retained cleanup
   drains blocking work off-main.
 - **UI** - four screens (Confirm, Player, Library, About), Material 3, single

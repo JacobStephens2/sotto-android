@@ -20,6 +20,8 @@ process-wide ownership (issues #15-16). Updated 2026-11-12.
       process-wide ownership, diagnostic Busy, waiting FIFO, and reserved gate
 - [x] Validate issue #16 with both flavors' JVM/lint/screenshot checks, relevant
       Room/ADTS instrumentation and manifest guards; record review and results
+- [x] Review Spec #14 as a whole, repair gate playback reset/recreation and shared
+      outcome persistence, and validate both flavors plus Room/ADTS instrumentation
 
 ## Now (Phase 0 - SPIKE-001)
 

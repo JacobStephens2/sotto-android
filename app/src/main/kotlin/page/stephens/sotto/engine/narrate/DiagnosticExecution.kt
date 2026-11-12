@@ -21,6 +21,7 @@ internal class DiagnosticExecution(
         emit: (DiagnosticEvent) -> Unit, finish: (DiagnosticEvent) -> Unit) {
         val dao = db.orations()
         val log = JobLog(db.joblog(), clock)
+        val outcomes = NarrationOutcomeRecorder(dao, log, clock)
         val title = "Phase 1 gate"
         val started = clock()
         try {
@@ -57,30 +58,24 @@ internal class DiagnosticExecution(
                             emit(DiagnosticEvent.Status("gate: chunk $done / $total · thermal ${environment.thermal()} · batt ${environment.batteryPct()}%"))
                         })
             }
+            outcomes.record("gate", title, result)
             val verdict = when (result) {
                 is NarrationResult.Complete -> {
-                    dao.setStatus("gate", "COMPLETE", clock())
-                    log.log("completed", title, "gate", "${result.chunks}ch ${result.audioBytes}B narratedMs=${result.narratedMs}")
                     "GATE COMPLETE: ${result.chunks} chunks, ${result.audioBytes / 1048576}MB, " +
                         "narrated %.1f min this+prior runs, wall %.1f min this run"
                             .format(result.narratedMs / 60000.0, (clock() - started) / 60000.0)
                 }
                 is NarrationResult.Stopped -> {
-                    dao.setStatus("gate", "STOPPED", clock())
-                    log.log("stopped", title, "gate", "${result.chunksDone}/${result.totalChunks}")
                     "gate stopped at ${result.chunksDone}/${result.totalChunks} (re-tap to resume)"
                 }
                 is NarrationResult.StorageFull -> {
-                    dao.setStatus("gate", "STOPPED", clock(), NarrationCoordinator.STORAGE_FULL)
-                    log.log("stopped", title, "gate", "storage full at ${result.chunksDone}/${result.totalChunks}")
                     "gate stopped: storage full at ${result.chunksDone}/${result.totalChunks} (free space, re-tap to resume)"
                 }
                 is NarrationResult.Failed -> throw result.cause
             }
             finish(DiagnosticEvent.Line(verdict))
         } catch (t: Throwable) {
-            dao.setStatus("gate", "ERROR", clock(), t.message)
-            log.log("error", title, "gate", t.toString().take(160))
+            outcomes.recordFailure("gate", title, t)
             throw t
         }
     }
