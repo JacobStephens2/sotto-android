@@ -11,7 +11,7 @@ through teardown (issue #15). Updated 2026-11-12.
       callback fencing, and the existing Android media owner
 - [x] Governing architecture/data-model/coding/testing guidance distinguishes
       ordinary ownership from the still-independent Lab caller
-- [ ] Validate issue #15 with both flavors' JVM/lint/screenshot checks, relevant
+- [x] Validate issue #15 with both flavors' JVM/lint/screenshot checks, relevant
       Room/adapter instrumentation, and existing manifest guards; record results
       in `_state.md`
 - [ ] Issue #16: route Lab gate/measurement/thread changes/Stop/reset through

@@ -18,12 +18,25 @@ and execution. Issue #16 must integrate them and verify contention before the
 complete process-wide one-worker guarantee is established. Issue #15 adds no
 WorkManager scheduling or performance claim.
 
-Validation so far: 26 focused JVM ownership/command tests pass. Four selected
-API 34 x86_64 instrumentation tests pass: schema-v1 migration, two interrupted
-queue/gate recovery cases, and byte-identical Room resume. Both-flavor final
-JVM/lint/screenshot verification and APK manifest guards are pending. The
-emulator used deterministic adapters; no real-model performance was measured.
-Earlier entries below describe earlier sessions, not this run.
+Final validation: 61 JVM tests per flavor pass, including seven screenshot
+comparisons and four provenance checks per flavor. Both Android lint runs and
+debug APK assemblies pass with recording disabled and screenshot verification
+enabled. The APK manifest guards pass: local has no network permission; sync
+adds INTERNET only. Command:
+
+```sh
+./gradlew lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+Four selected API 34 x86_64 instrumentation tests pass: schema-v1 migration,
+two interrupted queue/gate recovery cases, and byte-identical Room resume.
+Independent review found one Standards issue (recovery lifecycle logging) and
+one Spec issue (retry after a terminal outcome while model close drains).
+Both exact reviewer regressions failed before the fixes and pass afterward;
+both tests remain. Both axes read all 25 changed files, with no exclusions or
+unaddressed findings. Reports are in the session's `.thirdshift-review-Gfgc0B/`.
+The emulator used deterministic adapters; no real-model performance was
+measured. Earlier entries below describe earlier sessions, not this run.
 
 2026-11-11: ADR-008. Narrate, play, stop narration, sleep timer, and delete move
 to non-exported `InAppNarrationService` (UI is the caller). Exported
