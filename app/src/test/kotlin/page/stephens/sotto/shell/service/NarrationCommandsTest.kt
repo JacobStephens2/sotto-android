@@ -28,6 +28,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ServiceController
+import org.robolectric.shadows.ShadowToast
 import page.stephens.sotto.engine.store.OrationEntity
 import page.stephens.sotto.engine.store.SottoDatabase
 import java.io.File
@@ -46,6 +47,14 @@ class NarrationCommandsTest {
         inApp?.destroy()
         narration?.destroy()
         NarrationService.clearInAppForTest()
+        val drained = NarrationCoordinatorProvider.shutdownForTest()
+        await { drained?.isCompleted != false }
+        assertTrue(drained?.isCompleted != false)
+        // The reserved gate ID is reused across tests sharing the Room singleton.
+        runBlocking(Dispatchers.IO) {
+            db.clearAllTables()
+            File(context.filesDir, "orations").deleteRecursively()
+        }
     }
 
     @Test
@@ -150,6 +159,37 @@ class NarrationCommandsTest {
     }
 
     @Test
+    fun `failed admission and diagnostic-only results are shown to the caller`() {
+        insert("gate", status = "STOPPED")
+        startNarration()
+        val commands = startInApp()
+        commands.onStartCommand(command(InAppNarrationService.ACTION_NARRATE, "gate"), 0, 1)
+        await { ShadowToast.getTextOfLatestToast() == "Resume this oration in Lab" }
+        assertEquals("Resume this oration in Lab", ShadowToast.getTextOfLatestToast())
+        commands.onStartCommand(command(InAppNarrationService.ACTION_NARRATE, "missing-admission"), 0, 2)
+        await { ShadowToast.getTextOfLatestToast() == "Oration no longer exists" }
+        assertEquals("Oration no longer exists", ShadowToast.getTextOfLatestToast())
+        assertEquals("STOPPED", status("gate"))
+    }
+
+    @Test
+    fun `deleting the playing oration stops and clears its media item`() {
+        val id = "delete-playing"
+        insert(id, status = "COMPLETE", audioBytes = 8, withAudio = true)
+        val player = sessionPlayer(startNarration())
+        val commands = startInApp()
+        commands.onStartCommand(command(InAppNarrationService.ACTION_PLAY, id), 0, 1)
+        await { player.playWhenReady }
+        assertEquals(id, player.currentMediaItem?.mediaId)
+        commands.onStartCommand(command(InAppNarrationService.ACTION_DELETE, id), 0, 2)
+        await { events(id).any { it.event == "deleted" } }
+        assertEquals(0, player.mediaItemCount)
+        assertFalse(player.playWhenReady)
+        assertNull(oration(id))
+        assertFalse(File(context.filesDir, "orations/$id").exists())
+    }
+
+    @Test
     fun `the in-app sleep timer pauses playback and the exported service does not arm one`() {
         val id = "in-app-sleep"
         insert(id, status = "COMPLETE", audioBytes = 8, withAudio = true)
@@ -225,6 +265,84 @@ class NarrationCommandsTest {
 
         assertEquals("STOPPED", status(id))
         assertTrue(events(id).isEmpty())
+    }
+
+    @Test
+    fun `reserved gate plays after deletion and recreation in the same media owner`() {
+        val id = "gate"
+        insert(id, status = "COMPLETE", audioBytes = 8, withAudio = true)
+        val player = sessionPlayer(startNarration())
+        val commands = startInApp()
+        commands.onStartCommand(command(InAppNarrationService.ACTION_DELETE, id), 0, 1)
+        await { events(id).any { it.event == "deleted" } }
+        assertNull(oration(id))
+        assertFalse(File(context.filesDir, "orations/$id").exists())
+        insert(id, status = "COMPLETE", audioBytes = 8, withAudio = true)
+        commands.onStartCommand(command(InAppNarrationService.ACTION_PLAY, id), 0, 2)
+        await { player.mediaItemCount == 1 }
+        assertEquals(id, player.currentMediaItem?.mediaId)
+        assertTrue(player.playWhenReady)
+    }
+
+    @Test
+    fun `Lab gate reset stops matching playback before reporting deletion`() {
+        insert("ordinary-waiting", status = "QUEUED")
+        insert("gate", status = "COMPLETE", audioBytes = 8, withAudio = true)
+        val audio = File(context.filesDir, "orations/gate/audio.aac")
+        val mediaPlayers = java.util.concurrent.ConcurrentLinkedQueue<android.media.MediaPlayer>()
+        org.robolectric.shadows.ShadowMediaPlayer.addMediaInfo(
+            org.robolectric.shadows.util.DataSource.toDataSource(audio.absolutePath),
+            org.robolectric.shadows.ShadowMediaPlayer.MediaInfo(600_000, 0),
+        )
+        org.robolectric.shadows.ShadowMediaPlayer.setCreateListener { player, _ -> mediaPlayers.add(player) }
+        val controller = Robolectric.buildActivity(page.stephens.sotto.spike.MainActivity::class.java)
+            .create().start().resume()
+        try {
+            val activity = controller.get()
+            val content = activity.findViewById<android.view.ViewGroup>(android.R.id.content)
+            fun descendants(view: android.view.View): List<android.view.View> =
+                listOf(view) + if (view is android.view.ViewGroup) {
+                    (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) }
+                } else emptyList()
+            val views = descendants(content)
+            await { views.filterIsInstance<android.widget.TextView>().any {
+                it.text.toString().startsWith("Busy -")
+            } }
+            assertTrue(views.filterIsInstance<android.widget.TextView>().any {
+                it.text.toString().startsWith("Busy -")
+            })
+            val player = sessionPlayer(startNarration())
+            await { status("ordinary-waiting") == "ERROR" }
+            assertEquals("ERROR", status("ordinary-waiting"))
+            val commands = startInApp()
+            views.filterIsInstance<android.widget.Button>().single {
+                it.text.toString() == "Play gate audio"
+            }.performClick()
+            val app = shadowOf(context as android.app.Application)
+            while (true) {
+                val started = app.nextStartedService ?: break
+                when (started.component?.className) {
+                    InAppNarrationService::class.java.name -> commands.onStartCommand(started, 0, 1)
+                    NarrationService::class.java.name -> narration!!.get().onStartCommand(started, 0, 1)
+                }
+            }
+            fun playing() = player.playWhenReady || mediaPlayers.any {
+                runCatching { it.isPlaying }.getOrDefault(false)
+            }
+            await { playing() }
+            assertTrue("The Lab control must first start gate playback", playing())
+            views.filterIsInstance<android.widget.Button>().single {
+                it.text.toString().startsWith("Phase 1 gate")
+            }.performLongClick()
+            await { oration("gate") == null && !audio.parentFile!!.exists() }
+            assertNull(oration("gate"))
+            assertFalse(audio.parentFile!!.exists())
+            assertFalse("Reset completion must stop matching gate playback", playing())
+        } finally {
+            controller.pause().stop().destroy()
+            mediaPlayers.forEach { runCatching { it.release() } }
+            org.robolectric.shadows.ShadowMediaPlayer.setCreateListener(null)
+        }
     }
 
     private fun startNarration(intent: Intent? = null): NarrationService {

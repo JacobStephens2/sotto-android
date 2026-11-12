@@ -12,14 +12,54 @@
   the server is the reference implementation.
 - Title derivation, estimator median math, state-machine transitions
   (every edge in 11-data-model.md, including illegal-transition rejection).
+- Ordinary narration ownership through attached `narrate`, `stop`, `delete`,
+  detach/replacement, observable facts/results, Room rows/logs, and artifact
+  bytes. Use local Room databases and temporary real files with a managed
+  deterministic synthesizer and the existing encoder/progress/audio seams.
+  Test commands through their public outcomes; keep jobs, run tokens, locks,
+  and dispatcher choices private.
+- Hold one chunk with a latch or controlled adapter, then request Stop, another
+  oration, a busy retry, duplicate same-ID narration, deletion, and
+  detach/replacement. Assert no overlapping model or generate lifetime, no
+  premature close or file removal, one terminal outcome, and no late autoplay.
+  A sleep that happens not to overlap is not evidence of ownership.
+- Cover durable FIFO including an older STOPPED/ERROR retry behind newer
+  queued work, equal `queuedAt` values ordered by ID, duplicate coalescing,
+  detached/missing/COMPLETE/server-only/diagnostic-only admission, Stop before
+  model load, missing source, storage full, ordinary failure, a completed final
+  chunk, and continued pickup after a queued row vanishes. Check lifecycle and
+  deletion logs as well as final states. Observe listen-now only after saved
+  durable audio and fence stale events after Stop, deletion, or detach.
 
 **2. Instrumented tests (Room + engine, emulator x86_64 debug variant)**
 - Resume correctness: kill the process mid-narration at randomized chunk
   boundaries; assert byte-identical output versus an uninterrupted run (the
   server proved this property; the app must too).
 - Room migrations from schema v1 forward, orphan-sweep behavior.
+- Schema-v1-to-v2 migration preserves metadata, listening position, chunk and
+  byte progress, and accumulated narration time; `queuedAt` starts at
+  `createdAt`. Interrupted ordinary recovery keeps queue order/progress,
+  excludes the reserved `gate`, and changes an interrupted gate to STOPPED.
+  Recovery is once per process, not once per Android-owner attachment.
 - Synthesis runs with a tiny stub model in CI (real Kokoro is too heavy for
   emulator CI); real-model correctness is a device-matrix item.
+
+**Ownership scope**: ordinary and diagnostic callers share the retained worker.
+`NarrationCoordinatorTest` covers contention in both arrival orders, waiting
+ordinary retries and FIFO, gate reset/delete while blocked and after writer
+drain with callbacks queued, thread reload,
+diagnostic Stop/supersession, Lab detach, media-owner replacement during a gate,
+saved source, and legacy checkpoint recovery. Controlled adapters assert one
+model/generate lifetime, no premature release/mutation, and no late callback.
+Measurement tests use fixed clock/battery/thermal/memory observations and known
+arithmetic. Keep independent `NarrationEngine` durability/resume tests.
+`DiagnosticControlSpecRegressionTest` retains the review regressions for a
+stopped measurement summary and thread reload with waiting ordinary work.
+`NarrationCommandsTest` exercises the actual Lab gate playback/reset controls
+and deletion followed by playback of a recreated gate in the same media owner.
+`DiagnosticResumeTest` exercises Room, real ADTS encoding, shared gate ownership,
+reset, legacy source fallback, process recovery, and byte-identical resume with
+crash garbage. Existing Room resume/migration instrumentation remains required.
 
 **3. On-device tests (manual matrix + scripted where possible)**
 - Full PRD acceptance criteria, S1-S5.
@@ -38,10 +78,24 @@
 ## Merge criteria
 
 - JVM + instrumented suites green in CI.
-- Manifest check passes: no INTERNET/ACCESS_NETWORK_STATE in merged manifest
-  (ADR-004) - this is a *test*, not a review item.
+- Both flavors' JVM tests and Android lint pass. Run screenshot verification
+  with recording disabled so tests compare against the committed images.
+  Preserve About/flavor provenance and non-exported command-routing coverage.
+- Existing manifest guards pass for both flavors: local has neither INTERNET
+  nor ACCESS_NETWORK_STATE; sync adds INTERNET only (ADR-004/ADR-007).
 - Test-vector file hash matches the server repo's published hash (drift alarm).
-- No new lint errors; ktlint clean (40-code-style.md).
+- No new lint errors. The separate ktlint setup/documentation issue is #7;
+  ownership validation does not depend on a nonexistent ktlint task.
+
+The CI-equivalent JVM/lint/screenshot check is:
+
+```sh
+./gradlew lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+Run relevant Room migration and engine/adapter instrumentation on an emulator
+and record actual results or environment blockers in `_state.md`. Emulator
+checks establish behavior, never real-model throughput.
 
 ## Release criteria (adds to merge criteria)
 

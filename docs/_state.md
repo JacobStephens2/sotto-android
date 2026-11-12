@@ -1,5 +1,132 @@
 # _state.md - sotto-android session handoff
 
+2026-11-12: Spec #14 whole-branch Standards and Spec review compares issue-14
+with `refs/remotes/origin/master` at
+`503cb5d95b0d2ff9670744548583b31b527faaf9`, including both landed Tickets.
+Standards raised one maintenance finding; Spec raised two playback findings.
+All three are addressed. Independent follow-up found no additional findings.
+Both axes read all 32 changed paths, with no generated exclusions, unread files,
+or skipped findings. Reports and counts are in `.thirdshift-review-WET1vD/`.
+
+The exact gate-playback regressions each failed before their fix and passed
+afterward; both remain in `NarrationCommandsTest`. Saved Lab gate playback now
+uses the existing non-exported in-app play command and media owner, so reset
+stops matching playback before removing audio. Coordinator deletion facts and
+per-ID playback deletion versions replace a permanent ID blacklist, allowing
+the reserved gate to be recreated and played without recreating the media
+owner. Shared Room fixtures clear after coordinator drain. Ordinary and gate
+execution share terminal status/log persistence in `NarrationOutcomeRecorder`,
+preserving existing outcomes, storage-full wording, and log details.
+
+Final validation passes: 81 JVM tests per flavor, including seven screenshot
+comparisons and four provenance checks each; both lint checks and debug/test
+APK builds; and both existing manifest guards. Local has no network permission;
+sync adds INTERNET only. Command:
+
+```sh
+./gradlew lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug assembleLocalDebugAndroidTest -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+Five selected API 34 x86_64 instrumentation tests pass with no failures: shared
+gate Room/ADTS byte-identical resume, ordinary Room resume, schema-v1 migration,
+and two interrupted queue/gate recovery cases. Command:
+
+```sh
+./gradlew connectedLocalDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=page.stephens.sotto.engine.DiagnosticResumeTest,page.stephens.sotto.engine.RoomResumeTest,page.stephens.sotto.engine.store.QueueMigrationTest,page.stephens.sotto.engine.store.InterruptedQueueRecoveryTest
+```
+
+The instrumentation uses deterministic synthesis and real Android AAC encoding.
+No new hardware measurement or emulator performance claim is made. PR #18 stays
+draft; thirdshift owns the later push and optional Security review.
+
+Earlier entries below describe earlier sessions.
+
+2026-11-12: Issue #16 completes retained process-wide ownership. Lab uses typed
+Gate/Measure/Threads/Stop/ResetGate requests on the same `NarrationCoordinator`
+as ordinary narration. Diagnostic starts return Busy while ordinary work is
+active or queued. Ordinary requests during diagnostics persist in FIFO order
+and wait for drain. No production caller constructs an independent native model
+or inference executor. Model profiles preserve ordinary four-thread narration,
+Lab's 2/3/4 threads, measurement sid 0, and the gate voice mapping.
+
+Lab detach, Stop, supersession, and thread changes fence stale callbacks and
+drain blocking work before release or replacement. Media-owner replacement
+leaves a live gate alone. Gate reset and library deletion share the retained
+deletion barrier. New gates fsync source; legacy gates without source adopt the
+supplied bundle on explicit resume, preserving checkpoint/audio/log. Recovery
+is once per process, retaining STOPPED gate progress for Lab.
+
+Interface tests cover both contention orders, waiting retries/FIFO, blocked
+reset/delete, reload, detach, supersession, media attachment, legacy recovery,
+saved source, and deterministic measurement observations/arithmetic. The new
+`DiagnosticResumeTest` checks byte-identical gate resume with Room and real AAC
+encoding. Final validation: 79 JVM tests per flavor pass, including seven
+screenshot comparisons and four provenance checks each. Both lint checks and
+debug APK assemblies pass with recording disabled and verification enabled:
+
+```sh
+./gradlew lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug assembleLocalDebugAndroidTest -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+Both final APK manifest guards pass: local has no network permission, sync adds
+INTERNET only. Five selected API 34 x86_64 instrumentation tests pass: diagnostic
+Room/ADTS byte-identical resume with recovery and legacy source, existing Room
+resume after database reopen, schema-v1 migration, and two interrupted-queue
+recovery cases. The runner reported `OK (5 tests)`; deterministic synthesizers
+were used, including with the real Android AAC encoder. No new hardware
+measurement or emulator performance claim is made.
+
+The production call-site audit finds native construction/generate/release only
+inside `SherpaSynthesizer`, constructed solely by the shared provider's managed
+factory. Ordinary and diagnostic execution use the same retained lane.
+Independent Standards and Spec reviews each raised three findings. All were
+addressed: sentence case/test names, stopped terminal reports, thread reload
+with waiting ordinary work, and callbacks queued after a gate writer drained.
+Every behavioral finding's exact regression failed before its fix and passed
+afterward; the tests remain. Each axis read all 18 changed files, with no
+exclusions, unread files, or skipped findings. Reports and counts are in the
+session's `.thirdshift-review-i57Kc4/` directory.
+
+Earlier entries below describe earlier sessions.
+
+2026-11-12: Issue #15 retains ordinary narration ownership in a manually wired
+process-wide engine `NarrationCoordinator`, attached to the existing Android
+media owner. Admission, FIFO retry persistence, run identity, Stop, deletion,
+outcomes, and pickup move out of the caller. Commands return typed deferred
+outcomes; detach invalidates commands/callbacks promptly and drains off-main
+before model close or replacement execution. Listen-now follows saved durable
+audio. Playback, Media3 transport, governor, sleep timer, the four-thread
+ordinary profile, text pipeline, and ADTS format retain their behavior.
+Schema v2 adds `queuedAt`, migrating v1 values from `createdAt`; recovery is
+once per process and preserves durable progress/order. The reserved `gate` is
+excluded from ordinary pickup and an interrupted gate becomes STOPPED.
+
+ADR-009 and the domain glossary record these decisions. This is an intermediate
+scope: `GateRunner` and the spike/Lab still independently own diagnostic models
+and execution. Issue #16 must integrate them and verify contention before the
+complete process-wide one-worker guarantee is established. Issue #15 adds no
+WorkManager scheduling or performance claim.
+
+Final validation: 61 JVM tests per flavor pass, including seven screenshot
+comparisons and four provenance checks per flavor. Both Android lint runs and
+debug APK assemblies pass with recording disabled and screenshot verification
+enabled. The APK manifest guards pass: local has no network permission; sync
+adds INTERNET only. Command:
+
+```sh
+./gradlew lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+Four selected API 34 x86_64 instrumentation tests pass: schema-v1 migration,
+two interrupted queue/gate recovery cases, and byte-identical Room resume.
+Independent review found one Standards issue (recovery lifecycle logging) and
+one Spec issue (retry after a terminal outcome while model close drains).
+Both exact reviewer regressions failed before the fixes and pass afterward;
+both tests remain. Both axes read all 25 changed files, with no exclusions or
+unaddressed findings. Reports are in the session's `.thirdshift-review-Gfgc0B/`.
+The emulator used deterministic adapters; no real-model performance was
+measured. Earlier entries below describe earlier sessions, not this run.
+
 2026-11-11: ADR-008. Narrate, play, stop narration, sleep timer, and delete move
 to non-exported `InAppNarrationService` (UI is the caller). Exported
 `NarrationService` ignores those actions and still binds the Media3 session.
@@ -26,6 +153,8 @@ Updated: 2026-10-15
 - sherpa-onnx + Kokoro-82M int8, on-device, 7 server-parity voices (ADR-002)
 - Streaming chunk-ahead-of-playhead in one MediaSessionService (ADR-003)
 - In-app narration commands only on a non-exported service (ADR-008)
+- Retained process coordinator for ordinary and diagnostic narration; Android
+  media ownership and off-main teardown drain (ADR-009).
 - `local` flavor = no INTERNET, flagship claim (ADR-004); `sync` flavor =
   opt-in sotto-server account/library sync (ADR-007, contract in
   12-api-contract.md)
@@ -66,9 +195,7 @@ precedent for int8 on-device.
 
 ## Next actions
 
-1. Create `sotto-android` repo; copy doc-set in; license decision
-2. SPIKE-001 per tasks.md; fill the table above; record gate verdict here
-3. If gate passes → Phase 1 (first item is the server-side vector generator)
+1. Complete the existing hardware acceptance, fp32, and release gates above.
 
 ## Open questions (mirror of tasks.md)
 

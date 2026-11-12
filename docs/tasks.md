@@ -1,6 +1,27 @@
 # Tasks - sotto-android (living)
 
-Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
+Status: release hardware gates remain; ordinary and Lab narration share retained
+process-wide ownership (issues #15-16). Updated 2026-11-12.
+
+## Narration ownership (issues #14-16)
+
+- [x] Issue #15: attached ordinary narration commands, durable retry FIFO,
+      retained Stop/deletion/drain, managed model lifetime, and interface tests
+- [x] Glossary and ADR-009 document ordinary process retention, off-main drain,
+      callback fencing, and the existing Android media owner
+- [x] Governing architecture/data-model/coding/testing guidance distinguishes
+      ordinary ownership from the still-independent Lab caller
+- [x] Validate issue #15 with both flavors' JVM/lint/screenshot checks, relevant
+      Room/adapter instrumentation, and existing manifest guards; record results
+      in `_state.md`
+- [x] Issue #16: route Lab gate/measurement/thread changes/Stop/reset through
+      the shared owner; cover cross-caller exclusion, drain, recovery, and legacy data
+- [x] Complete ADR-009 and architecture/diagnostic/data-model/test guidance for
+      process-wide ownership, diagnostic Busy, waiting FIFO, and reserved gate
+- [x] Validate issue #16 with both flavors' JVM/lint/screenshot checks, relevant
+      Room/ADTS instrumentation and manifest guards; record review and results
+- [x] Review Spec #14 as a whole, repair gate playback reset/recreation and shared
+      outcome persistence, and validate both flavors plus Room/ADTS instrumentation
 
 ## Now (Phase 0 - SPIKE-001)
 

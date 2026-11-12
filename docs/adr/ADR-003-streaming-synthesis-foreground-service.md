@@ -3,6 +3,13 @@
 Status: accepted
 Date: 2026-06-12
 
+Ownership clarification (2026-11-12):
+[ADR-009](ADR-009-retained-narration-ownership.md) retains ordinary narration
+execution in a process-wide engine coordinator attached to this media owner.
+The current implementation does not start queued narration without an attached
+owner. The expedited WorkManager path below remains a planned scheduling
+arrangement; issue #15 does not implement or redesign it.
+
 ## Decision
 
 Synthesis streams just ahead of the playhead: the engine synthesizes chunk n+k

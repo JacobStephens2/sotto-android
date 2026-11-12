@@ -1,7 +1,7 @@
 package page.stephens.sotto.shell.synth
 
 // The real Synthesizer: Kokoro-82M via sherpa-onnx. Loads once per construction
-// (the service holds one for its lifetime). Voice ids are the product's seven
+// (the retained coordinator owns its lifetime). Voice ids are the product's seven
 // (docs/02-prd.md F4); sherpa addresses Kokoro voices by integer sid, so this is
 // where the mapping lives.
 
@@ -11,14 +11,14 @@ import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
-import page.stephens.sotto.engine.narrate.Synthesizer
+import page.stephens.sotto.engine.narrate.ManagedSynthesizer
 import java.io.File
 
 class SherpaSynthesizer(
     context: Context,
     numThreads: Int = 4,
     private val sidOf: (String) -> Int = DEFAULT_SIDS,
-) : Synthesizer, AutoCloseable {
+) : ManagedSynthesizer {
 
     private val tts: OfflineTts
 

@@ -3,6 +3,11 @@
 Status: accepted
 Date: 2026-11-11
 
+Ownership clarification (2026-11-12):
+[ADR-009](ADR-009-retained-narration-ownership.md) moves ordinary worker
+coordination behind an attachment owned by the media service. This ADR still
+governs command entry and exported Media3 transport access.
+
 ## Decision
 
 Start narration, play, stop narration, the sleep timer, and delete are accepted

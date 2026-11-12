@@ -15,11 +15,12 @@ share sheet / file open / paste
 │  Compose UI: Confirm · Player · Library · About                    │
 │  InAppNarrationService (not exported, ADR-008)                     │
 │  NarrationService (foreground, mediaPlayback type)                 │
-│    ├── NarrationEngine (engine)                                    │
-│    │     clean_markdown port → chunk port → SynthesisQueue         │
-│    │     └── KokoroSynthesizer (sherpa-onnx JNI, Kokoro-82M int8)  │
-│    │           └── writes chunk PCM → encoder → oration audio file │
-│    └── Media3 ExoPlayer ← plays the growing file                   │
+│    ├── attached narrator → process NarrationCoordinator (engine)   │
+│    │     admission → one retained process-wide execution lane     │
+│    │     └── NarrationEngine → managed model → PCM → encoder      │
+│    │           └── fsync audio → persist progress → durable event │
+│    └── Media3 ExoPlayer ← plays the growing ADTS audio file        │
+│  Lab → typed diagnostics → same NarrationCoordinator lane        │
 │  Room DB: orations · chunks-progress · joblog · settings           │
 │  Files (app-private): orations/<id>/audio + source.md              │
 └─────────────────────────────────────────────────────────────────────┘
@@ -39,9 +40,20 @@ share sheet / file open / paste
   (1,000-char sentence-boundary chunks). Deterministic, validated against test
   vectors generated from the Python originals. These two functions are the
   shared-DNA between the server and this app; the test vectors are the contract.
-- **KokoroSynthesizer** - wraps sherpa-onnx's Kotlin/JNI API; loads the bundled
-  int8 model once per service lifetime; `synthesize(text, voiceId): FloatArray`.
-  Phonemization is sherpa-onnx's bundled espeak-ng - no Python, no misaki.
+- **NarrationCoordinator** - owns ordinary queue admission, run identity,
+  cooperative Stop, deletion barriers, outcome persistence, and pickup. It is
+  retained once per process and manually wired by the shell. An attached
+  narrator exposes `narrate(id)`, `stop()`, and `delete(id)` with typed
+  `Deferred` outcomes, observable narration facts, and nonblocking detach.
+  No caller receives the engine job, native model, or mutable stop predicate.
+  Ordinary and gate execution share terminal status/log persistence through an
+  internal outcome recorder; gate verdicts remain in diagnostic execution.
+- **Managed synthesizer seam** - construction, generation, and close happen
+  within the coordinator's execution lane. The shell supplies sherpa-onnx's
+  Kotlin/JNI adapter with the existing four-thread ordinary profile; tests
+  supply a deterministic blocking resource. Phonemization remains sherpa-onnx's
+  bundled espeak-ng. A cached model belongs to its attachment/profile and is
+  closed only after its writer drains.
 - **NarrationEngine** - drives an oration: for each remaining chunk, synthesize,
   encode, append to the oration's audio file, persist progress (chunk index +
   byte offset) in Room, emit progress. Resume = truncate to last persisted byte
@@ -52,19 +64,36 @@ share sheet / file open / paste
 
 ### Shell
 
-- **NarrationService** - a `MediaSessionService` (Media3) holding both the
-  ExoPlayer and the NarrationEngine coroutine. One service, one notification:
-  synthesis progress and playback controls together. Foreground type
-  `mediaPlayback` while playing; synthesis-only (queued, screen off, not
-  listening) runs as expedited WorkManager work that checkpoints per chunk and
-  tolerates being deferred - it never needs to outrun Doze because resume is
-  free (ADR-003 records this split). It is exported so the system can bind the
-  session, and it ignores in-app commands (ADR-008).
+- **NarrationService** - a `MediaSessionService` (Media3) holding ExoPlayer and
+  the ordinary narrator attachment. One service, one notification combines
+  narration progress and playback controls; the foreground type is
+  `mediaPlayback` while playing. The process coordinator retains blocking work
+  during owner teardown, and ordinary queue pickup requires an attached owner
+  (ADR-009). ADR-003's expedited WorkManager path remains planned; this change
+  does not add background scheduling. The service is exported so the system
+  can bind the session, and it ignores in-app commands (ADR-008).
 - **InAppNarrationService** - not exported, no intent-filter. The UI starts it
   for narrate, play, stop narration, the sleep timer, and delete. It hands
   those to `NarrationService` inside the process. Another app cannot start it.
-- **Playhead governor** - pauses playback at the synthesis frontier ("catching
-  up") when synthesis falls behind; resumes when buffer ≥ ~20 s ahead.
+  Ordinary narration commands delegate to the attached narrator; rejected
+  admission and diagnostic-only results remain observable to the caller.
+- **Playback and listen-now** - ExoPlayer, MediaSession transport, the sleep
+  timer, and playhead governor stay in the media owner. Listen-now follows a
+  first-durable-audio event after fsync and saved progress, with attachment/run
+  fencing. The governor persists the playhead and re-resolves a growing file
+  when playback reaches its current end ("catching up"). Deletion invokes a
+  narrow callback to stop matching playback on the player's thread. Observable
+  deletion facts block playback until removal finishes; per-ID deletion versions
+  fence pending reads from the removed audio. Explicit playback can use a newly
+  created reserved gate in the same media-owner lifetime.
+- **Lab** - attaches to the same coordinator with typed gate, measurement,
+  thread configuration, Stop, and reset requests. It displays Busy when ordinary
+  work is active or queued. Lab retains controls, PCM playback, progress, and
+  thermal/battery observations, with no model or inference executor of its own.
+  Saved gate playback uses the non-exported in-app play command and the existing
+  media owner, so gate reset and library deletion stop that playback too.
+  Leaving Lab detaches and fences callbacks immediately; retained cleanup
+  drains blocking work off-main.
 - **UI** - four screens (Confirm, Player, Library, About), Material 3, single
   activity, Navigation-Compose. Share intents land on Confirm.
 
@@ -79,12 +108,11 @@ share sheet / file open / paste
 
 ## Audio format decision (resolved by SPIKE-001)
 
-Kokoro emits 24 kHz mono PCM. Options: (a) encode chunks to MP3 with LAME
-(server parity, larger CPU cost), (b) AAC via Android's MediaCodec (hardware
-encoder, free, native), (c) store WAV and encode on export. Leaning (b) -
-hardware AAC in an `.m4a` container costs near-zero CPU during synthesis -
-with (a) only if seamless append across sessions proves unreliable in M4A.
-The spike measures both. Export always produces a single file either way.
+Kokoro emits 24 kHz mono PCM. `AdtsAacEncoder` encodes each chunk with a fresh
+MediaCodec instance into appendable ADTS AAC at `orations/<id>/audio.aac`.
+Frame-boundary truncation and deterministic per-chunk encoding preserve
+byte-identical resume. Issue #15 keeps the encoder, progress, and audio-sink
+seams and does not change this format.
 
 ## Data design
 
@@ -94,10 +122,44 @@ progress; the filesystem holds the two big artifacts (audio, source text) under
 
 ## Concurrency model
 
-One synthesis worker, ever (mirrors the server's per-job thread but stricter:
-phones don't profit from parallel ONNX sessions and thermals punish trying).
-Queue is FIFO by request time. Playback of an already-complete oration is
-independent of the worker.
+One retained worker owns all production inference and model lifetimes across
+the process, including diagnostic construction, generation, encoding, file
+work, gate progress/log writes, reconfiguration, and close. Its typed
+diagnostic interface exposes neither native models nor arbitrary work closures.
+Diagnostic starts return Busy while ordinary work is active or queued, leaving
+ordinary work untouched. Ordinary requests admitted during diagnostics persist
+in FIFO order and wait for the diagnostic to finish or cooperatively stop and
+drain. Thread reload and supersession fence old callbacks and wait for the
+previous writer and model. Ordinary narration keeps four threads; Lab selects
+2/3/4 threads with its original measurement sid 0 and gate voice mapping.
+Thread changes still control an admitted diagnostic when ordinary work waits.
+Explicit Stop retains its terminal summary/verdict while fencing progress and
+audio; supersession, detach, and deletion fence terminal callbacks as well.
+
+Command admission is serialized separately from blocking execution. Pending
+commands are considered before dispatch, so Stop accepted before dispatch
+prevents model loading. Stop during a chunk retains its run's ownership through
+encoding, fsync, saved progress, sink closure, and terminal persistence. A
+repeated same-ID request coalesces with the current or stopping run rather than
+resetting its stop flag. Durable queue pickup orders by `queuedAt`, then ID.
+
+Detach invalidates commands and callbacks immediately, prevents pickup, and
+signals its active run. Coordinator-owned cleanup drains off-main and releases
+the model afterward. A replacement attachment waits for that lifetime before
+executing; queued rows remain durable while no owner is attached. Recovery is
+once per process before admission, rather than once per media-owner creation.
+The reserved `gate` is excluded from ordinary recovery pickup and interrupted
+gate progress becomes `STOPPED` for an explicit diagnostic request. Replacing
+the media owner during a live gate never reruns process recovery or stops the
+Lab run. New gates persist source text; a legacy gate missing source adopts the
+supplied bundle only on an explicit Lab request. Saved source wins on resume.
+
+Deletion fences admission for its ID, stops matching playback, requests Stop,
+and waits for the matching ordinary or diagnostic writer off-main. It removes the Room row before the
+directory, reports completion after removal, and logs the result; startup
+retries orphan-directory cleanup. Gate reset uses the same drain and deletion
+barrier, retaining the log. Playback of existing durable audio
+remains independent of queue ownership.
 
 ## Assumptions
 

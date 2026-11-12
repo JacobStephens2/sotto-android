@@ -21,18 +21,25 @@ artifacts. Layout mirrors the server's library sidecar convention (`.mp3` +
 | audioDurationMs | Long | derived, updated per chunk |
 | narratedMs | Long | accumulated wall-clock synthesis time across resumes (fixes the server's known undercount) |
 | createdAt / updatedAt | Long | epoch ms |
+| queuedAt | Long | durable ordinary request time; pickup sorts ascending, then by stable ID |
 | playheadMs | Long | last listening position (S2 position memory) |
 | errorMessage | String? | ERROR: terminal error detail; STOPPED: the stop's cause when it was not the user (storage full) |
 | serverName | String? | sync key: filename in the server library (`sync` flavor; null = never synced) |
 | serverMtime | Long? | server-side mtime at last sync, for rename LWW (12-api-contract.md) |
 | downloaded | Bool | false for SERVER_ONLY rows (metadata known, audio not yet fetched) |
 
-Files: `orations/<id>/audio.m4a` (or `.mp3`, per the spike), `orations/<id>/source.md`.
+Files: `orations/<id>/audio.aac` (ADTS AAC), `orations/<id>/source.md`.
+
+Schema v2 adds `queuedAt`. The v1 migration initializes it from `createdAt`
+without rebuilding rows or changing titles, sync metadata, listening positions,
+chunk counts, byte offsets, or accumulated narration time. New rows initialize
+it at creation. `updatedAt` remains a general metadata timestamp, not a queue
+ordering field.
 
 ### JobLogEntry
 
 Append-only traceability (boundary 5): `id, at, orationId?, title, event, detail`.
-Events: created, started, resumed, chunk-done (sampled, not every chunk),
+Events: created, queued, started, resumed, chunk-done (after saved durability),
 stopped, completed, error, deleted, exported, renamed. Viewable in About →
 Activity log. Never leaves the device.
 
@@ -56,12 +63,71 @@ Activity log. Never leaves the device.
                                   retry (re-queue from chunksDone) ──▶ QUEUED
 ```
 
-- QUEUED → NARRATING only via the single worker; FIFO.
-- Process death in NARRATING → on next start, any NARRATING row reverts to
-  QUEUED with its chunksDone/audioBytes intact (the resume_jobs design).
+- Ordinary QUEUED → NARRATING only via the coordinator's attached narrator;
+  FIFO by `queuedAt`, then ID. The reserved diagnostic ID `gate` is excluded.
+- STOPPED/ERROR retry → QUEUED is persisted before successful admission, with
+  a refreshed `queuedAt` and unchanged durable progress. Already queued or
+  still-running requests coalesce without moving queue time; a request for the
+  same stopping run does not revive it. A retry after that run reaches STOPPED
+  is a new admission, even while the previous model is closing. Execution
+  continues to wait for that drain.
+- Process death in ordinary NARRATING → once-per-process recovery reverts it
+  to QUEUED with `queuedAt`, `chunksDone`, `audioBytes`, and narration time
+  intact. Recovery completes before ordinary admission and is not repeated on
+  Android-owner attachment. An interrupted `gate` becomes STOPPED with its
+  checkpoint intact, never an ordinary queued run. Recovery records ordinary
+  requeue and diagnostic stop events in the local activity log atomically with
+  their state transitions.
 - STOPPED and COMPLETE are both playable; STOPPED shows "stopped at n of N".
-- Deleting an oration removes the Room row and the directory atomically (row
-  first, directory cleanup idempotent on next start).
+- Stop retains run ownership through the current durable chunk and outcome
+  persistence. If the final chunk finishes before Stop takes effect, the
+  outcome is COMPLETE. Storage full stays STOPPED with its existing cause;
+  other ordinary failures become ERROR. Owner teardown requests a cooperative
+  stop rather than converting teardown into ERROR.
+- Deletion establishes an admission barrier, stops matching playback, and
+  waits off-main for the matching ordinary or diagnostic writer to close. It then deletes the row
+  before its directory and logs the result. These are ordered operations,
+  not a filesystem/Room transaction; success is reported only after removal.
+  Startup retries orphan-directory cleanup after an interrupted deletion.
+  Observable deletion facts clear before completion is reported. Playback fences
+  the removed generation, allowing the reserved gate ID to be created and played
+  again without recreating the Android media owner.
+
+### Ordinary admission results
+
+| Request state | Result and durable effect |
+|---|---|
+| Local QUEUED | Admit or coalesce; preserve queue order |
+| Local STOPPED / ERROR | Persist QUEUED and new `queuedAt`, keeping durable progress, then admit |
+| Current active or stopping run | Coalesce with that run; preserve its stop flag |
+| Missing, COMPLETE, server-only, or detached attachment | Typed no-op/rejection; no model load |
+| Incomplete reserved `gate` | Diagnostic-only result directing the reader to Lab; no ordinary pickup |
+| ID fenced for deletion | Reject admission until removal has finished |
+
+Callers display failed-admission and diagnostic-only outcomes. Durable gate
+audio remains playable and the library can request deletion. Library deletion
+and typed Lab ResetGate both stop/drain a matching diagnostic writer before
+removing files or progress; the append-only log remains.
+
+### Diagnostic admission and reserved gate
+
+- Typed Gate/Measure requests return Busy if ordinary work is active or queued;
+  no ordinary run is stopped or mutated. Ordinary requests during admitted
+  diagnostics persist QUEUED with normal FIFO semantics and wait for drain.
+- Lab owns a separate attachment. Stop, supersession, thread reload, and detach
+  fence diagnostic callbacks and stop at a chunk boundary. Construction,
+  encoding, durable gate progress/log writes, and model close share the retained
+  lane; replacement execution waits for all of them. Media-owner attachment
+  neither recovers nor claims the active diagnostic run.
+- Threads can stop/reconfigure an admitted diagnostic even with ordinary work
+  waiting; Gate/Measure starts still return Busy. Explicit Stop retains the
+  current run's terminal measurement summary or gate verdict. Progress/audio
+  are fenced on Stop; supersession, detach, and deletion also fence terminal events.
+- Gate uses reserved ID `gate`, title `Phase 1 gate`, and voice `af_heart`.
+  New runs fsync source text before row creation. Explicit legacy resumption
+  writes the supplied bundled text if `source.md` is missing; otherwise saved
+  text wins. Existing durable audio/checkpoint/narration time and log survive
+  recovery and resume. An interrupted gate becomes STOPPED once per process.
 
 ## Invariants
 
@@ -70,8 +136,9 @@ Activity log. Never leaves the device.
 2. `chunksDone` and `audioBytes` move together in one Room transaction.
 3. `title` is never derived twice: derived at creation, then only user renames
    touch it.
-4. An oration directory without a Room row (or vice versa) is garbage; a
-   startup sweep deletes orphans and logs the event.
+4. An oration directory without a Room row is orphaned; startup retries its
+   removal and logs the result. A local row whose source is missing yields an
+   ordinary failure and does not prevent pickup of later queued rows.
 5. In the `local` flavor the sync columns are always null/false and no entity
    stores account ids or URLs - nothing to sync, nothing to leak. In the `sync`
    flavor, the only stored identifiers are the user's chosen server URL and
