@@ -18,7 +18,7 @@ process-wide ownership (issues #15-16). Updated 2026-11-12.
       the shared owner; cover cross-caller exclusion, drain, recovery, and legacy data
 - [x] Complete ADR-009 and architecture/diagnostic/data-model/test guidance for
       process-wide ownership, diagnostic Busy, waiting FIFO, and reserved gate
-- [ ] Validate issue #16 with both flavors' JVM/lint/screenshot checks, relevant
+- [x] Validate issue #16 with both flavors' JVM/lint/screenshot checks, relevant
       Room/ADTS instrumentation and manifest guards; record review and results
 
 ## Now (Phase 0 - SPIKE-001)

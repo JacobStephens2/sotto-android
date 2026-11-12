@@ -19,8 +19,32 @@ Interface tests cover both contention orders, waiting retries/FIFO, blocked
 reset/delete, reload, detach, supersession, media attachment, legacy recovery,
 saved source, and deterministic measurement observations/arithmetic. The new
 `DiagnosticResumeTest` checks byte-identical gate resume with Room and real AAC
-encoding. Final validation and independent review are in progress for this
-session. No new hardware measurement or emulator performance claim is made.
+encoding. Final validation: 79 JVM tests per flavor pass, including seven
+screenshot comparisons and four provenance checks each. Both lint checks and
+debug APK assemblies pass with recording disabled and verification enabled:
+
+```sh
+./gradlew lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug assembleLocalDebugAndroidTest -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+Both final APK manifest guards pass: local has no network permission, sync adds
+INTERNET only. Five selected API 34 x86_64 instrumentation tests pass: diagnostic
+Room/ADTS byte-identical resume with recovery and legacy source, existing Room
+resume after database reopen, schema-v1 migration, and two interrupted-queue
+recovery cases. The runner reported `OK (5 tests)`; deterministic synthesizers
+were used, including with the real Android AAC encoder. No new hardware
+measurement or emulator performance claim is made.
+
+The production call-site audit finds native construction/generate/release only
+inside `SherpaSynthesizer`, constructed solely by the shared provider's managed
+factory. Ordinary and diagnostic execution use the same retained lane.
+Independent Standards and Spec reviews each raised three findings. All were
+addressed: sentence case/test names, stopped terminal reports, thread reload
+with waiting ordinary work, and callbacks queued after a gate writer drained.
+Every behavioral finding's exact regression failed before its fix and passed
+afterward; the tests remain. Each axis read all 18 changed files, with no
+exclusions, unread files, or skipped findings. Reports and counts are in the
+session's `.thirdshift-review-i57Kc4/` directory.
 
 Earlier entries below describe earlier sessions.
 
@@ -130,8 +154,7 @@ precedent for int8 on-device.
 
 ## Next actions
 
-1. Finish and record issue #16 validation and independent review.
-2. Complete the existing hardware acceptance, fp32, and release gates above.
+1. Complete the existing hardware acceptance, fp32, and release gates above.
 
 ## Open questions (mirror of tasks.md)
 
