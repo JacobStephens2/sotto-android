@@ -42,11 +42,12 @@ src/sync/      sync flavor only: API client, account screens, sync engine
   drains before model close. Detach synchronously invalidates the attachment
   and fences callbacks. No main-thread joins, GlobalScope, or runBlocking
   outside tests.
-- Retained ordinary worker ownership lives in `engine/narrate`, including
+- Retained process-wide worker ownership lives in `engine/narrate`, including
   admission, run identity, stop flags, outcome persistence, deletion, and
-  pickup. The Android caller must not reconstruct that protocol. Diagnostic
-  callers still bypass it until issue #16, so the complete one-worker invariant
-  remains pending (10-architecture-overview.md, ADR-009).
+  pickup. The Android caller must not reconstruct that protocol. Lab uses typed
+  diagnostic requests on the same coordinator, never a model handle or arbitrary
+  work closure. Diagnostic source/file/encoder/progress/log work and model
+  reconfiguration/close stay in the same lane (ADR-009).
 - A stop flag belongs to a run, not an oration ID. Pending commands precede
   dispatch; retries persist QUEUED before admission succeeds; duplicates never
   clear a stopping run's flag. Pickup sorts by persisted `queuedAt`, then ID.

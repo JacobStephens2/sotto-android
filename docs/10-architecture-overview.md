@@ -16,11 +16,11 @@ share sheet / file open / paste
 │  InAppNarrationService (not exported, ADR-008)                     │
 │  NarrationService (foreground, mediaPlayback type)                 │
 │    ├── attached narrator → process NarrationCoordinator (engine)   │
-│    │     admission → one retained ordinary execution lane         │
+│    │     admission → one retained process-wide execution lane     │
 │    │     └── NarrationEngine → managed model → PCM → encoder      │
 │    │           └── fsync audio → persist progress → durable event │
 │    └── Media3 ExoPlayer ← plays the growing ADTS audio file        │
-│  Lab / GateRunner → independent diagnostics (until issue #16)     │
+│  Lab → typed diagnostics → same NarrationCoordinator lane        │
 │  Room DB: orations · chunks-progress · joblog · settings           │
 │  Files (app-private): orations/<id>/audio + source.md              │
 └─────────────────────────────────────────────────────────────────────┘
@@ -81,10 +81,12 @@ share sheet / file open / paste
   fencing. The governor persists the playhead and re-resolves a growing file
   when playback reaches its current end ("catching up"). Deletion invokes a
   narrow callback to stop matching playback on the player's thread.
-- **Lab / GateRunner** - still independently construct and run diagnostic
-  models in this intermediate scope. Issue #16 routes gate, measurement,
-  thread changes, Stop, and reset through retained process ownership. They
-  remain an explicit gap in the complete one-worker rule until then.
+- **Lab** - attaches to the same coordinator with typed gate, measurement,
+  thread configuration, Stop, and reset requests. It displays Busy when ordinary
+  work is active or queued. Lab retains controls, PCM playback, progress, and
+  thermal/battery observations, with no model or inference executor of its own.
+  Leaving Lab detaches and fences callbacks immediately; retained cleanup
+  drains blocking work off-main.
 - **UI** - four screens (Confirm, Player, Library, About), Material 3, single
   activity, Navigation-Compose. Share intents land on Confirm.
 
@@ -113,10 +115,16 @@ progress; the filesystem holds the two big artifacts (audio, source text) under
 
 ## Concurrency model
 
-The constitution requires one synthesis worker across the process. Issue #15
-enforces one retained ordinary worker; independent diagnostic ownership remains
-until issue #16. Do not describe this intermediate implementation as a complete
-process-wide guarantee.
+One retained worker owns all production inference and model lifetimes across
+the process, including diagnostic construction, generation, encoding, file
+work, gate progress/log writes, reconfiguration, and close. Its typed
+diagnostic interface exposes neither native models nor arbitrary work closures.
+Diagnostic starts return Busy while ordinary work is active or queued, leaving
+ordinary work untouched. Ordinary requests admitted during diagnostics persist
+in FIFO order and wait for the diagnostic to finish or cooperatively stop and
+drain. Thread reload and supersession fence old callbacks and wait for the
+previous writer and model. Ordinary narration keeps four threads; Lab selects
+2/3/4 threads with its original measurement sid 0 and gate voice mapping.
 
 Command admission is serialized separately from blocking execution. Pending
 commands are considered before dispatch, so Stop accepted before dispatch
@@ -131,13 +139,16 @@ the model afterward. A replacement attachment waits for that lifetime before
 executing; queued rows remain durable while no owner is attached. Recovery is
 once per process before admission, rather than once per media-owner creation.
 The reserved `gate` is excluded from ordinary recovery pickup and interrupted
-gate progress becomes `STOPPED` for an explicit diagnostic request.
+gate progress becomes `STOPPED` for an explicit diagnostic request. Replacing
+the media owner during a live gate never reruns process recovery or stops the
+Lab run. New gates persist source text; a legacy gate missing source adopts the
+supplied bundle only on an explicit Lab request. Saved source wins on resume.
 
 Deletion fences admission for its ID, stops matching playback, requests Stop,
-and waits for the ordinary writer off-main. It removes the Room row before the
+and waits for the matching ordinary or diagnostic writer off-main. It removes the Room row before the
 directory, reports completion after removal, and logs the result; startup
-retries orphan-directory cleanup. Draining an independent diagnostic writer
-during gate deletion is part of issue #16. Playback of existing durable audio
+retries orphan-directory cleanup. Gate reset uses the same drain and deletion
+barrier, retaining the log. Playback of existing durable audio
 remains independent of queue ownership.
 
 ## Assumptions

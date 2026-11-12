@@ -1,5 +1,29 @@
 # _state.md - sotto-android session handoff
 
+2026-11-12: Issue #16 completes retained process-wide ownership. Lab uses typed
+Gate/Measure/Threads/Stop/ResetGate requests on the same `NarrationCoordinator`
+as ordinary narration. Diagnostic starts return Busy while ordinary work is
+active or queued. Ordinary requests during diagnostics persist in FIFO order
+and wait for drain. No production caller constructs an independent native model
+or inference executor. Model profiles preserve ordinary four-thread narration,
+Lab's 2/3/4 threads, measurement sid 0, and the gate voice mapping.
+
+Lab detach, Stop, supersession, and thread changes fence stale callbacks and
+drain blocking work before release or replacement. Media-owner replacement
+leaves a live gate alone. Gate reset and library deletion share the retained
+deletion barrier. New gates fsync source; legacy gates without source adopt the
+supplied bundle on explicit resume, preserving checkpoint/audio/log. Recovery
+is once per process, retaining STOPPED gate progress for Lab.
+
+Interface tests cover both contention orders, waiting retries/FIFO, blocked
+reset/delete, reload, detach, supersession, media attachment, legacy recovery,
+saved source, and deterministic measurement observations/arithmetic. The new
+`DiagnosticResumeTest` checks byte-identical gate resume with Room and real AAC
+encoding. Final validation and independent review are in progress for this
+session. No new hardware measurement or emulator performance claim is made.
+
+Earlier entries below describe earlier sessions.
+
 2026-11-12: Issue #15 retains ordinary narration ownership in a manually wired
 process-wide engine `NarrationCoordinator`, attached to the existing Android
 media owner. Admission, FIFO retry persistence, run identity, Stop, deletion,
@@ -64,8 +88,8 @@ Updated: 2026-10-15
 - sherpa-onnx + Kokoro-82M int8, on-device, 7 server-parity voices (ADR-002)
 - Streaming chunk-ahead-of-playhead in one MediaSessionService (ADR-003)
 - In-app narration commands only on a non-exported service (ADR-008)
-- Retained process coordinator for ordinary narration; Android media ownership
-  and off-main teardown drain (ADR-009). Diagnostic integration remains #16.
+- Retained process coordinator for ordinary and diagnostic narration; Android
+  media ownership and off-main teardown drain (ADR-009).
 - `local` flavor = no INTERNET, flagship claim (ADR-004); `sync` flavor =
   opt-in sotto-server account/library sync (ADR-007, contract in
   12-api-contract.md)
@@ -106,10 +130,8 @@ precedent for int8 on-device.
 
 ## Next actions
 
-1. Finish and record issue #15 validation; keep hardware release gates open.
-2. Issue #16: move diagnostic inference/model lifetimes behind retained
-   ownership, then verify the complete one-worker rule across callers.
-3. Complete the existing hardware acceptance, fp32, and release gates above.
+1. Finish and record issue #16 validation and independent review.
+2. Complete the existing hardware acceptance, fp32, and release gates above.
 
 ## Open questions (mirror of tasks.md)
 

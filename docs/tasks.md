@@ -1,7 +1,7 @@
 # Tasks - sotto-android (living)
 
-Status: release hardware gates remain; ordinary narration ownership is retained
-through teardown (issue #15). Updated 2026-11-12.
+Status: release hardware gates remain; ordinary and Lab narration share retained
+process-wide ownership (issues #15-16). Updated 2026-11-12.
 
 ## Narration ownership (issues #14-16)
 
@@ -14,9 +14,12 @@ through teardown (issue #15). Updated 2026-11-12.
 - [x] Validate issue #15 with both flavors' JVM/lint/screenshot checks, relevant
       Room/adapter instrumentation, and existing manifest guards; record results
       in `_state.md`
-- [ ] Issue #16: route Lab gate/measurement/thread changes/Stop/reset through
-      the shared owner and verify cross-caller exclusion. The complete
-      process-wide one-worker guarantee remains pending this Ticket.
+- [x] Issue #16: route Lab gate/measurement/thread changes/Stop/reset through
+      the shared owner; cover cross-caller exclusion, drain, recovery, and legacy data
+- [x] Complete ADR-009 and architecture/diagnostic/data-model/test guidance for
+      process-wide ownership, diagnostic Busy, waiting FIFO, and reserved gate
+- [ ] Validate issue #16 with both flavors' JVM/lint/screenshot checks, relevant
+      Room/ADTS instrumentation and manifest guards; record review and results
 
 ## Now (Phase 0 - SPIKE-001)
 

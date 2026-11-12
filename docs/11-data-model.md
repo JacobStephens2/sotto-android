@@ -85,7 +85,7 @@ Activity log. Never leaves the device.
   other ordinary failures become ERROR. Owner teardown requests a cooperative
   stop rather than converting teardown into ERROR.
 - Deletion establishes an admission barrier, stops matching playback, and
-  waits off-main for the ordinary writer to close. It then deletes the row
+  waits off-main for the matching ordinary or diagnostic writer to close. It then deletes the row
   before its directory and logs the result. These are ordered operations,
   not a filesystem/Room transaction; success is reported only after removal.
   Startup retries orphan-directory cleanup after an interrupted deletion.
@@ -102,8 +102,25 @@ Activity log. Never leaves the device.
 | ID fenced for deletion | Reject admission until removal has finished |
 
 Callers display failed-admission and diagnostic-only outcomes. Durable gate
-audio remains playable and the library can request deletion. Shared drain with
-a live independent diagnostic writer is completed by issue #16.
+audio remains playable and the library can request deletion. Library deletion
+and typed Lab ResetGate both stop/drain a matching diagnostic writer before
+removing files or progress; the append-only log remains.
+
+### Diagnostic admission and reserved gate
+
+- Typed Gate/Measure requests return Busy if ordinary work is active or queued;
+  no ordinary run is stopped or mutated. Ordinary requests during admitted
+  diagnostics persist QUEUED with normal FIFO semantics and wait for drain.
+- Lab owns a separate attachment. Stop, supersession, thread reload, and detach
+  fence diagnostic callbacks and stop at a chunk boundary. Construction,
+  encoding, durable gate progress/log writes, and model close share the retained
+  lane; replacement execution waits for all of them. Media-owner attachment
+  neither recovers nor claims the active diagnostic run.
+- Gate uses reserved ID `gate`, title `Phase 1 gate`, and voice `af_heart`.
+  New runs fsync source text before row creation. Explicit legacy resumption
+  writes the supplied bundled text if `source.md` is missing; otherwise saved
+  text wins. Existing durable audio/checkpoint/narration time and log survive
+  recovery and resume. An interrupted gate becomes STOPPED once per process.
 
 ## Invariants
 

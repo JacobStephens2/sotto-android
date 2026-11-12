@@ -44,13 +44,17 @@
 - Synthesis runs with a tiny stub model in CI (real Kokoro is too heavy for
   emulator CI); real-model correctness is a device-matrix item.
 
-**Ownership scope**: issue #15 covers ordinary callers and their managed model
-adapter. Keep independent `NarrationEngine` durability/resume tests and the
-existing real Room/ADTS adapter instrumentation. Issue #16 adds diagnostic
-contention in both arrival orders, gate reset/delete while blocked, thread
-reload, Lab detach, media-owner recreation during a gate, and legacy gate
-recovery. Until that integration is complete, ordinary interface tests do not
-prove one worker across all production inference callers.
+**Ownership scope**: ordinary and diagnostic callers share the retained worker.
+`NarrationCoordinatorTest` covers contention in both arrival orders, waiting
+ordinary retries and FIFO, gate reset/delete while blocked, thread reload,
+diagnostic Stop/supersession, Lab detach, media-owner replacement during a gate,
+saved source, and legacy checkpoint recovery. Controlled adapters assert one
+model/generate lifetime, no premature release/mutation, and no late callback.
+Measurement tests use fixed clock/battery/thermal/memory observations and known
+arithmetic. Keep independent `NarrationEngine` durability/resume tests.
+`DiagnosticResumeTest` exercises Room, real ADTS encoding, shared gate ownership,
+reset, legacy source fallback, process recovery, and byte-identical resume with
+crash garbage. Existing Room resume/migration instrumentation remains required.
 
 **3. On-device tests (manual matrix + scripted where possible)**
 - Full PRD acceptance criteria, S1-S5.
