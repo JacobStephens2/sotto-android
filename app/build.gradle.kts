@@ -61,6 +61,7 @@ android {
     }
 
     sourceSets.getByName("main").assets.srcDir(if (fp32) "src/precision/fp32" else "src/precision/int8")
+    sourceSets.getByName("androidTest").assets.srcDir("schemas")
 
     applicationVariants.all {
         outputs.all {
@@ -93,6 +94,10 @@ android {
             }
         }
     }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {

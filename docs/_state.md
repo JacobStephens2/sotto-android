@@ -1,5 +1,30 @@
 # _state.md - sotto-android session handoff
 
+2026-11-12: Issue #15 retains ordinary narration ownership in a manually wired
+process-wide engine `NarrationCoordinator`, attached to the existing Android
+media owner. Admission, FIFO retry persistence, run identity, Stop, deletion,
+outcomes, and pickup move out of the caller. Commands return typed deferred
+outcomes; detach invalidates commands/callbacks promptly and drains off-main
+before model close or replacement execution. Listen-now follows saved durable
+audio. Playback, Media3 transport, governor, sleep timer, the four-thread
+ordinary profile, text pipeline, and ADTS format retain their behavior.
+Schema v2 adds `queuedAt`, migrating v1 values from `createdAt`; recovery is
+once per process and preserves durable progress/order. The reserved `gate` is
+excluded from ordinary pickup and an interrupted gate becomes STOPPED.
+
+ADR-009 and the domain glossary record these decisions. This is an intermediate
+scope: `GateRunner` and the spike/Lab still independently own diagnostic models
+and execution. Issue #16 must integrate them and verify contention before the
+complete process-wide one-worker guarantee is established. Issue #15 adds no
+WorkManager scheduling or performance claim.
+
+Validation so far: 26 focused JVM ownership/command tests pass. Four selected
+API 34 x86_64 instrumentation tests pass: schema-v1 migration, two interrupted
+queue/gate recovery cases, and byte-identical Room resume. Both-flavor final
+JVM/lint/screenshot verification and APK manifest guards are pending. The
+emulator used deterministic adapters; no real-model performance was measured.
+Earlier entries below describe earlier sessions, not this run.
+
 2026-11-11: ADR-008. Narrate, play, stop narration, sleep timer, and delete move
 to non-exported `InAppNarrationService` (UI is the caller). Exported
 `NarrationService` ignores those actions and still binds the Media3 session.
@@ -26,6 +51,8 @@ Updated: 2026-10-15
 - sherpa-onnx + Kokoro-82M int8, on-device, 7 server-parity voices (ADR-002)
 - Streaming chunk-ahead-of-playhead in one MediaSessionService (ADR-003)
 - In-app narration commands only on a non-exported service (ADR-008)
+- Retained process coordinator for ordinary narration; Android media ownership
+  and off-main teardown drain (ADR-009). Diagnostic integration remains #16.
 - `local` flavor = no INTERNET, flagship claim (ADR-004); `sync` flavor =
   opt-in sotto-server account/library sync (ADR-007, contract in
   12-api-contract.md)
@@ -66,9 +93,10 @@ precedent for int8 on-device.
 
 ## Next actions
 
-1. Create `sotto-android` repo; copy doc-set in; license decision
-2. SPIKE-001 per tasks.md; fill the table above; record gate verdict here
-3. If gate passes → Phase 1 (first item is the server-side vector generator)
+1. Finish and record issue #15 validation; keep hardware release gates open.
+2. Issue #16: move diagnostic inference/model lifetimes behind retained
+   ownership, then verify the complete one-worker rule across callers.
+3. Complete the existing hardware acceptance, fp32, and release gates above.
 
 ## Open questions (mirror of tasks.md)
 

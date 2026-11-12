@@ -11,14 +11,14 @@ import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
-import page.stephens.sotto.engine.narrate.Synthesizer
+import page.stephens.sotto.engine.narrate.ManagedSynthesizer
 import java.io.File
 
 class SherpaSynthesizer(
     context: Context,
     numThreads: Int = 4,
     private val sidOf: (String) -> Int = DEFAULT_SIDS,
-) : Synthesizer, AutoCloseable {
+) : ManagedSynthesizer {
 
     private val tts: OfflineTts
 

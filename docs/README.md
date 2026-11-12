@@ -8,6 +8,10 @@ account so one library is usable from the phone and a desktop browser.
 
 ## Reading order
 
+Read [the domain glossary](../GLOSSARY.md) for Oration, chunk, and Narration
+worker before changing narration behavior. The documents below define the
+rules; the code reading index follows the ordinary narration path.
+
 | # | Document | Role |
 |---|---|---|
 | 1 | [01-concept-brief.md](01-concept-brief.md) | North star - what this is and is not |
@@ -28,6 +32,27 @@ account so one library is usable from the phone and a desktop browser.
 | 16 | [tasks.md](tasks.md) | Current task list (living) |
 | 17 | [CLAUDE.md](CLAUDE.md) | Agent context file, to be copied to the app repo root |
 | 18 | [_state.md](_state.md) | Session-to-session handoff state (living) |
+
+## Code reading index
+
+Paths are relative to `app/src/main/kotlin/page/stephens/sotto/`.
+
+| Concern | Start here |
+|---|---|
+| Ordinary admission, Stop, deletion, attachment, and retained ownership | `engine/narrate/NarrationCoordinator.kt` |
+| Durable chunk execution and resume | `engine/narrate/NarrationEngine.kt` |
+| Oration rows, queue order, recovery, and migration | `engine/store/Db.kt` |
+| Audio append, truncate, and fsync | `engine/store/FileAudioSink.kt` |
+| Manual process-wide wiring and managed production model | `shell/service/NarrationCoordinatorProvider.kt` |
+| Android media owner, listen-now, governor, and sleep timer | `shell/service/NarrationService.kt` |
+| Non-exported in-app command routing | `shell/service/InAppNarrationService.kt` |
+| Diagnostic caller awaiting shared ownership in issue #16 | `shell/gate/GateRunner.kt`, `spike/MainActivity.kt` |
+
+For ownership changes, read [ADR-009](adr/ADR-009-retained-narration-ownership.md)
+and the interface tests before following private control or execution details.
+Issue #15 covers ordinary callers; the complete one-worker rule also requires
+[issue #16](https://github.com/JacobStephens2/sotto-android/issues/16), which
+removes the Lab's independent model and executor ownership.
 
 ## Deliberately skipped
 
