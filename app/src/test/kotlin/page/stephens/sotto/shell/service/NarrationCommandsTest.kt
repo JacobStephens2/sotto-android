@@ -28,6 +28,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ServiceController
+import org.robolectric.shadows.ShadowToast
 import page.stephens.sotto.engine.store.OrationEntity
 import page.stephens.sotto.engine.store.SottoDatabase
 import java.io.File
@@ -46,6 +47,9 @@ class NarrationCommandsTest {
         inApp?.destroy()
         narration?.destroy()
         NarrationService.clearInAppForTest()
+        val drained = NarrationCoordinatorProvider.shutdownForTest()
+        await { drained?.isCompleted != false }
+        assertTrue(drained?.isCompleted != false)
     }
 
     @Test
@@ -147,6 +151,37 @@ class NarrationCommandsTest {
         await { player.mediaItemCount == 1 }
         assertEquals(id, player.currentMediaItem?.mediaId)
         assertTrue(player.playWhenReady)
+    }
+
+    @Test
+    fun `failed admission and diagnostic-only results are shown to the caller`() {
+        insert("gate", status = "STOPPED")
+        startNarration()
+        val commands = startInApp()
+        commands.onStartCommand(command(InAppNarrationService.ACTION_NARRATE, "gate"), 0, 1)
+        await { ShadowToast.getTextOfLatestToast() == "Resume this oration in Lab" }
+        assertEquals("Resume this oration in Lab", ShadowToast.getTextOfLatestToast())
+        commands.onStartCommand(command(InAppNarrationService.ACTION_NARRATE, "missing-admission"), 0, 2)
+        await { ShadowToast.getTextOfLatestToast() == "Oration no longer exists" }
+        assertEquals("Oration no longer exists", ShadowToast.getTextOfLatestToast())
+        assertEquals("STOPPED", status("gate"))
+    }
+
+    @Test
+    fun `deleting the playing oration stops and clears its media item`() {
+        val id = "delete-playing"
+        insert(id, status = "COMPLETE", audioBytes = 8, withAudio = true)
+        val player = sessionPlayer(startNarration())
+        val commands = startInApp()
+        commands.onStartCommand(command(InAppNarrationService.ACTION_PLAY, id), 0, 1)
+        await { player.playWhenReady }
+        assertEquals(id, player.currentMediaItem?.mediaId)
+        commands.onStartCommand(command(InAppNarrationService.ACTION_DELETE, id), 0, 2)
+        await { events(id).any { it.event == "deleted" } }
+        assertEquals(0, player.mediaItemCount)
+        assertFalse(player.playWhenReady)
+        assertNull(oration(id))
+        assertFalse(File(context.filesDir, "orations/$id").exists())
     }
 
     @Test

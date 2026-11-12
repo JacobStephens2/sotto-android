@@ -23,3 +23,4 @@ Index:
 - ADR-006: Sideload-first distribution via GitHub releases; Play deferred
 - ADR-007: Two build flavors, `local` (no network) and `sync` (opt-in server account)
 - ADR-008: In-app narration commands use a non-exported entry point
+- ADR-009: Retain narration ownership across ordinary commands and Android-owner teardown

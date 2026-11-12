@@ -6,6 +6,7 @@ package page.stephens.sotto.engine.store
 // (invariant 5).
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -15,6 +16,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import page.stephens.sotto.engine.narrate.Progress
 import page.stephens.sotto.engine.narrate.ProgressStore
 
@@ -34,6 +37,7 @@ data class OrationEntity(
     val narratedMs: Long = 0,
     val createdAt: Long,
     val updatedAt: Long,
+    @ColumnInfo(defaultValue = "0") val queuedAt: Long = createdAt,
     val playheadMs: Long = 0,
     val errorMessage: String? = null,
     // sync flavor only; always null/false in `local` (invariant 5)
@@ -72,7 +76,7 @@ interface OrationDao {
     @Query("SELECT * FROM orations WHERE id = :id")
     fun byIdFlow(id: String): kotlinx.coroutines.flow.Flow<OrationEntity?>
 
-    @Query("SELECT * FROM orations WHERE status = 'QUEUED' ORDER BY createdAt ASC LIMIT 1")
+    @Query("SELECT * FROM orations WHERE status = 'QUEUED' AND id != 'gate' AND downloaded = 1 ORDER BY queuedAt ASC, id ASC LIMIT 1")
     fun nextQueued(): OrationEntity?
 
     @Query("UPDATE orations SET title = :title, updatedAt = :now WHERE id = :id")
@@ -104,10 +108,16 @@ interface OrationDao {
     @Query("UPDATE orations SET status = :status, updatedAt = :now, errorMessage = :error WHERE id = :id")
     fun setStatus(id: String, status: String, now: Long, error: String? = null)
 
-    // Startup recovery (resume_jobs design): anything mid-flight reverts to QUEUED
-    // with its durable progress intact.
-    @Query("UPDATE orations SET status = 'QUEUED', updatedAt = :now WHERE status = 'NARRATING'")
+    @Query("UPDATE orations SET status = 'QUEUED', queuedAt = :requestedAt, updatedAt = :requestedAt, errorMessage = NULL WHERE id = :id AND status IN ('STOPPED', 'ERROR')")
+    fun enqueueRetry(id: String, requestedAt: Long): Int
+
+    // Process-start recovery keeps ordinary request order and durable progress.
+    @Query("UPDATE orations SET status = 'QUEUED', updatedAt = :now WHERE status = 'NARRATING' AND id != 'gate'")
     fun requeueInterrupted(now: Long): Int
+
+    // The diagnostic checkpoint is resumed only by an explicit diagnostic run.
+    @Query("UPDATE orations SET status = 'STOPPED', updatedAt = :now WHERE id = 'gate' AND status IN ('NARRATING', 'QUEUED')")
+    fun stopInterruptedGate(now: Long): Int
 
     @Query("DELETE FROM orations WHERE id = :id")
     fun delete(id: String)
@@ -125,12 +135,19 @@ interface JobLogDao {
     fun count(orationId: String, event: String): Int
 }
 
-@Database(entities = [OrationEntity::class, JobLogEntity::class], version = 1, exportSchema = true)
+@Database(entities = [OrationEntity::class, JobLogEntity::class], version = 2, exportSchema = true)
 abstract class SottoDatabase : RoomDatabase() {
     abstract fun orations(): OrationDao
     abstract fun joblog(): JobLogDao
 
     companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE orations ADD COLUMN queuedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE orations SET queuedAt = createdAt")
+            }
+        }
+
         // Process-wide singleton: the activity's Flow collectors only see the
         // service's writes if both use the same instance (Room invalidation is
         // per-instance). Never closed; it lives as long as the process.
@@ -139,7 +156,7 @@ abstract class SottoDatabase : RoomDatabase() {
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext, SottoDatabase::class.java, "sotto.db",
-                ).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
             }
     }
 }
