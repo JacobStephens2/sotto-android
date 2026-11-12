@@ -46,13 +46,12 @@ Paths are relative to `app/src/main/kotlin/page/stephens/sotto/`.
 | Manual process-wide wiring and managed production model | `shell/service/NarrationCoordinatorProvider.kt` |
 | Android media owner, listen-now, governor, and sleep timer | `shell/service/NarrationService.kt` |
 | Non-exported in-app command routing | `shell/service/InAppNarrationService.kt` |
-| Diagnostic caller awaiting shared ownership in issue #16 | `shell/gate/GateRunner.kt`, `spike/MainActivity.kt` |
+| Typed Lab requests and measurements | `engine/narrate/Diagnostics.kt`, `engine/narrate/DiagnosticExecution.kt`, `spike/MainActivity.kt` |
 
 For ownership changes, read [ADR-009](adr/ADR-009-retained-narration-ownership.md)
 and the interface tests before following private control or execution details.
-Issue #15 covers ordinary callers; the complete one-worker rule also requires
-[issue #16](https://github.com/JacobStephens2/sotto-android/issues/16), which
-removes the Lab's independent model and executor ownership.
+Issues #15 and #16 cover ordinary and diagnostic callers through the same
+retained worker. Lab owns neither a model nor an inference executor.
 
 ## Deliberately skipped
 

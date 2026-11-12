@@ -1,7 +1,7 @@
 package page.stephens.sotto.shell.synth
 
 // The real Synthesizer: Kokoro-82M via sherpa-onnx. Loads once per construction
-// (the service holds one for its lifetime). Voice ids are the product's seven
+// (the retained coordinator owns its lifetime). Voice ids are the product's seven
 // (docs/02-prd.md F4); sherpa addresses Kokoro voices by integer sid, so this is
 // where the mapping lives.
 

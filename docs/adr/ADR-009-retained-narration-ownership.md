@@ -1,12 +1,12 @@
-# ADR-009: Retain narration ownership across ordinary commands and Android-owner teardown
+# ADR-009: Retain process-wide narration ownership across ordinary and diagnostic callers
 
 Status: accepted
 Date: 2026-11-12
 
 ## Decision
 
-Put ordinary admission, queue pickup, run identity, Stop, outcome persistence,
-deletion, and recovery in the engine's `NarrationCoordinator`. Wire one retained
+Put admission, queue pickup, diagnostic requests, run identity, Stop, outcome
+persistence, deletion, and recovery in the engine's `NarrationCoordinator`. Wire one retained
 coordinator per process manually from the shell. The existing
 `NarrationService` remains the Android owner of normal playback and its attached
 narration lifetime, preserving ADR-003 and ADR-008.
@@ -28,8 +28,24 @@ rows wait for an attached owner; cleanup does not start unattached narration.
 The retained coordinator keeps application dependencies rather than an
 Activity or a detached owner's callbacks.
 
+Lab attaches separately with typed Gate, Measure, Threads, Stop, and ResetGate
+requests. Its requests expose no model or arbitrary work closure. A start while
+ordinary work is active or queued returns Busy without stopping it. Ordinary
+requests during diagnostics persist in FIFO order and wait for the diagnostic
+writer and model to drain. Superseding a diagnostic, changing threads, Stop,
+or leaving Lab fences that run's callbacks and cooperatively stops it. A thread
+reload of an admitted diagnostic remains available with ordinary work waiting
+and completes only after blocking work and model close. Explicit Stop retains
+the current run's terminal measurement summary or gate verdict, while fencing
+progress/audio. Supersession, detach, and deletion fence terminal events too,
+including queued callbacks from a matching writer that already drained. Media-owner
+replacement does not stop, recover, claim, or fail an attached Lab run.
+
 The model factory constructs and closes managed synthesizers inside the same
-execution lane. The ordinary profile remains four threads. Playback stays in
+execution lane. The ordinary profile remains four threads; Lab supports 2/3/4
+threads, sid 0 for measurements, and the ordinary voice mapping for the gate.
+Profiles never coexist: the previous model closes before another is built.
+Diagnostics close their model before waiting ordinary work starts. Playback stays in
 the Android owner: ExoPlayer, MediaSession transport, governor, and sleep timer
 do not become coordinator responsibilities. A narrow playback-stop callback
 supports deletion; a first-durable-audio event follows fsync and saved progress
@@ -72,11 +88,15 @@ tests with real Room rows and files.
   retain queue time and progress. The reserved `gate` row is excluded from
   ordinary pickup; interrupted gate progress becomes `STOPPED` for explicit
   Lab resumption.
-- Issue #15 establishes retained ownership for ordinary narration only.
-  `GateRunner` and the spike/Lab still own independent models and execution.
-  [Issue #16](https://github.com/JacobStephens2/sotto-android/issues/16) must
-  route them through this coordinator and verify cross-caller exclusion before
-  the constitution's complete process-wide one-worker guarantee is satisfied.
+- Issue #16 completes the process-wide rule: diagnostic construction,
+  generation, encoder/file work, gate state/log persistence, reconfiguration,
+  and release all run in the same lane as ordinary narration. Gate reset and
+  library deletion use the same deletion barrier and drain a matching gate
+  writer before removing its row or files. Reset retains the append-only log.
+- New gates fsync `source.md`; later resumes use that saved source. A legacy
+  gate without source stores the supplied bundle on explicit Lab resumption,
+  preserving existing audio and durable progress. Ordinary requests for an
+  incomplete gate direct the reader to Lab; existing audio stays playable.
 - This decision rules out main-thread joins, model release before a writer
   drains, and new ordinary pickup without an attachment. It does not add
   WorkManager scheduling or change permissions, model choice, audio format,

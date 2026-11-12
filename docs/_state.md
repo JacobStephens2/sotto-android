@@ -1,5 +1,53 @@
 # _state.md - sotto-android session handoff
 
+2026-11-12: Issue #16 completes retained process-wide ownership. Lab uses typed
+Gate/Measure/Threads/Stop/ResetGate requests on the same `NarrationCoordinator`
+as ordinary narration. Diagnostic starts return Busy while ordinary work is
+active or queued. Ordinary requests during diagnostics persist in FIFO order
+and wait for drain. No production caller constructs an independent native model
+or inference executor. Model profiles preserve ordinary four-thread narration,
+Lab's 2/3/4 threads, measurement sid 0, and the gate voice mapping.
+
+Lab detach, Stop, supersession, and thread changes fence stale callbacks and
+drain blocking work before release or replacement. Media-owner replacement
+leaves a live gate alone. Gate reset and library deletion share the retained
+deletion barrier. New gates fsync source; legacy gates without source adopt the
+supplied bundle on explicit resume, preserving checkpoint/audio/log. Recovery
+is once per process, retaining STOPPED gate progress for Lab.
+
+Interface tests cover both contention orders, waiting retries/FIFO, blocked
+reset/delete, reload, detach, supersession, media attachment, legacy recovery,
+saved source, and deterministic measurement observations/arithmetic. The new
+`DiagnosticResumeTest` checks byte-identical gate resume with Room and real AAC
+encoding. Final validation: 79 JVM tests per flavor pass, including seven
+screenshot comparisons and four provenance checks each. Both lint checks and
+debug APK assemblies pass with recording disabled and verification enabled:
+
+```sh
+./gradlew lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug assembleLocalDebugAndroidTest -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+Both final APK manifest guards pass: local has no network permission, sync adds
+INTERNET only. Five selected API 34 x86_64 instrumentation tests pass: diagnostic
+Room/ADTS byte-identical resume with recovery and legacy source, existing Room
+resume after database reopen, schema-v1 migration, and two interrupted-queue
+recovery cases. The runner reported `OK (5 tests)`; deterministic synthesizers
+were used, including with the real Android AAC encoder. No new hardware
+measurement or emulator performance claim is made.
+
+The production call-site audit finds native construction/generate/release only
+inside `SherpaSynthesizer`, constructed solely by the shared provider's managed
+factory. Ordinary and diagnostic execution use the same retained lane.
+Independent Standards and Spec reviews each raised three findings. All were
+addressed: sentence case/test names, stopped terminal reports, thread reload
+with waiting ordinary work, and callbacks queued after a gate writer drained.
+Every behavioral finding's exact regression failed before its fix and passed
+afterward; the tests remain. Each axis read all 18 changed files, with no
+exclusions, unread files, or skipped findings. Reports and counts are in the
+session's `.thirdshift-review-i57Kc4/` directory.
+
+Earlier entries below describe earlier sessions.
+
 2026-11-12: Issue #15 retains ordinary narration ownership in a manually wired
 process-wide engine `NarrationCoordinator`, attached to the existing Android
 media owner. Admission, FIFO retry persistence, run identity, Stop, deletion,
@@ -64,8 +112,8 @@ Updated: 2026-10-15
 - sherpa-onnx + Kokoro-82M int8, on-device, 7 server-parity voices (ADR-002)
 - Streaming chunk-ahead-of-playhead in one MediaSessionService (ADR-003)
 - In-app narration commands only on a non-exported service (ADR-008)
-- Retained process coordinator for ordinary narration; Android media ownership
-  and off-main teardown drain (ADR-009). Diagnostic integration remains #16.
+- Retained process coordinator for ordinary and diagnostic narration; Android
+  media ownership and off-main teardown drain (ADR-009).
 - `local` flavor = no INTERNET, flagship claim (ADR-004); `sync` flavor =
   opt-in sotto-server account/library sync (ADR-007, contract in
   12-api-contract.md)
@@ -106,10 +154,7 @@ precedent for int8 on-device.
 
 ## Next actions
 
-1. Finish and record issue #15 validation; keep hardware release gates open.
-2. Issue #16: move diagnostic inference/model lifetimes behind retained
-   ownership, then verify the complete one-worker rule across callers.
-3. Complete the existing hardware acceptance, fp32, and release gates above.
+1. Complete the existing hardware acceptance, fp32, and release gates above.
 
 ## Open questions (mirror of tasks.md)
 
