@@ -310,7 +310,7 @@ class NarrationCoordinatorTest {
         val audio = AtomicInteger()
         val owner = coordinator.attach(NarrationCallbacks(onAudioReady = { audio.incrementAndGet() }))
         owner.narrate("a").await()
-        callbackDispatcher.flush()
+        (callbackDispatcher as PausedCallbacks).flushNext()
         awaitStatus("a", "COMPLETE")
         val deletion = owner.delete("a")
         owner.narrate("a").await() // Wait for the deletion barrier without running queued callbacks.
@@ -342,6 +342,82 @@ class NarrationCoordinatorTest {
         assertEquals(1, db.joblog().count("orphan", "deleted"))
     }
 
+    @Test
+    fun `recovery records a stopped lifecycle event for an interrupted gate`() = runBlocking {
+        insert("gate", "Saved diagnostic source.", status = "NARRATING")
+        val owner = coordinator.attach()
+
+        assertEquals(NarrationCommandResult.Missing, owner.narrate("absent").await())
+        assertEquals("STOPPED", db.orations().byId("gate")!!.status)
+        assertEquals(0, maximumModels.get())
+        assertEquals(1, db.joblog().count("gate", "stopped"))
+    }
+
+    @Test
+    fun `replacement retry after STOPPED remains queued while old model closes`() = runBlocking {
+        insert("a", "Held first. " + "More text. ".repeat(200), status = "STOPPED")
+        val chunkEntered = CountDownLatch(1)
+        val finishChunk = CountDownLatch(1)
+        val closeEntered = CountDownLatch(1)
+        val finishClose = CountDownLatch(1)
+        val generated = AtomicInteger()
+        val openModels = AtomicInteger()
+        val mostModels = AtomicInteger()
+        val local = NarrationCoordinator(
+            db, root,
+            ManagedSynthesizerFactory {
+                mostModels.accumulateAndGet(openModels.incrementAndGet(), ::maxOf)
+                object : ManagedSynthesizer {
+                    override val sampleRate = 24_000
+                    override fun synthesize(text: String, voiceId: String): FloatArray {
+                        if (generated.incrementAndGet() == 1) {
+                            chunkEntered.countDown()
+                            check(finishChunk.await(10, TimeUnit.SECONDS)) { "chunk was not released" }
+                        }
+                        return floatArrayOf(1f, 2f)
+                    }
+                    override fun close() {
+                        closeEntered.countDown()
+                        check(finishClose.await(10, TimeUnit.SECONDS)) { "close was not released" }
+                        openModels.decrementAndGet()
+                    }
+                }
+            },
+            encoderFactory = { object : PcmEncoder {
+                override fun encode(samples: FloatArray) = byteArrayOf(1, 2, 3, 4)
+            } },
+            callbackDispatcher = Dispatchers.Unconfined,
+        )
+        try {
+            val first = local.attach()
+            assertEquals(NarrationCommandResult.Queued, first.narrate("a").await())
+            assertTrue(chunkEntered.await(5, TimeUnit.SECONDS))
+            first.detach()
+            finishChunk.countDown()
+            assertTrue(closeEntered.await(5, TimeUnit.SECONDS))
+            val stopped = db.orations().byId("a")!!
+            assertEquals("STOPPED", stopped.status)
+            assertEquals(1, stopped.chunksDone)
+            assertEquals(1, db.joblog().count("a", "stopped"))
+
+            val replacement = local.attach()
+            assertEquals(NarrationCommandResult.Queued, replacement.narrate("a").await())
+            val queued = db.orations().byId("a")!!
+            assertEquals("QUEUED", queued.status)
+            assertEquals(stopped.chunksDone, queued.chunksDone)
+            assertEquals(stopped.audioBytes, queued.audioBytes)
+            assertEquals(1, openModels.get())
+            finishClose.countDown()
+            awaitStatus("a", "COMPLETE")
+            assertEquals(1, db.joblog().count("a", "resumed"))
+            assertEquals(1, mostModels.get())
+        } finally {
+            finishChunk.countDown()
+            finishClose.countDown()
+            withTimeout(10_000) { local.shutdown().await() }
+        }
+    }
+
     private fun insert(id: String, text: String, status: String = "QUEUED", created: Long = 1) {
         val dir = File(root, id).also { it.mkdirs() }
         File(dir, "source.md").writeText(text)
@@ -366,5 +442,11 @@ class NarrationCoordinatorTest {
         private val pending = ConcurrentLinkedQueue<Runnable>()
         override fun dispatch(context: CoroutineContext, block: Runnable) { pending.add(block) }
         fun flush() { while (true) (pending.poll() ?: break).run() }
+        suspend fun flushNext() {
+            withTimeout(5_000) {
+                while (pending.isEmpty()) kotlinx.coroutines.yield()
+                pending.remove().run()
+            }
+        }
     }
 }

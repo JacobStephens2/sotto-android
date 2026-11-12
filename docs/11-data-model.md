@@ -67,14 +67,17 @@ Activity log. Never leaves the device.
   FIFO by `queuedAt`, then ID. The reserved diagnostic ID `gate` is excluded.
 - STOPPED/ERROR retry → QUEUED is persisted before successful admission, with
   a refreshed `queuedAt` and unchanged durable progress. Already queued or
-  active requests coalesce without moving queue time; a request for the
+  still-running requests coalesce without moving queue time; a request for the
   same stopping run does not revive it. A retry after that run reaches STOPPED
-  is a new admission.
+  is a new admission, even while the previous model is closing. Execution
+  continues to wait for that drain.
 - Process death in ordinary NARRATING → once-per-process recovery reverts it
   to QUEUED with `queuedAt`, `chunksDone`, `audioBytes`, and narration time
   intact. Recovery completes before ordinary admission and is not repeated on
   Android-owner attachment. An interrupted `gate` becomes STOPPED with its
-  checkpoint intact, never an ordinary queued run.
+  checkpoint intact, never an ordinary queued run. Recovery records ordinary
+  requeue and diagnostic stop events in the local activity log atomically with
+  their state transitions.
 - STOPPED and COMPLETE are both playable; STOPPED shows "stopped at n of N".
 - Stop retains run ownership through the current durable chunk and outcome
   persistence. If the final chunk finishes before Stop takes effect, the

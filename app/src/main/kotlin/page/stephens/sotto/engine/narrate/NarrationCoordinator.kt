@@ -139,8 +139,7 @@ class NarrationCoordinator(
     init {
         scope.launch {
             try {
-                db.orations().requeueInterrupted(clock())
-                db.orations().stopInterruptedGate(clock())
+                recoverInterrupted()
                 sweepOrphans()
             } catch (t: Exception) {
                 initializationFailure = t
@@ -257,7 +256,6 @@ class NarrationCoordinator(
         if (row.status == "COMPLETE") return NarrationCommandResult.Complete
         if (!row.downloaded) return NarrationCommandResult.ServerOnly
         if (id == "gate") return NarrationCommandResult.DiagnosticOnly
-        if (active?.id == id) return NarrationCommandResult.Coalesced
         if (row.status == "QUEUED" || row.status == "NARRATING") return NarrationCommandResult.Coalesced
         if (db.orations().enqueueRetry(id, clock()) == 0) return NarrationCommandResult.Missing
         JobLog(db.joblog()).log("queued", row.title, id, "retry requested")
@@ -425,6 +423,20 @@ class NarrationCoordinator(
         orationsDir.listFiles()?.filter { it.isDirectory && db.orations().byId(it.name) == null }?.forEach {
             val removed = it.deleteRecursively()
             JobLog(db.joblog()).log(if (removed) "deleted" else "error", it.name, it.name, "orphan cleanup")
+        }
+    }
+
+    private fun recoverInterrupted() {
+        db.runInTransaction {
+            val interrupted = db.orations().all().filter {
+                it.status == "NARRATING" || (it.id == "gate" && it.status == "QUEUED")
+            }
+            db.orations().requeueInterrupted(clock())
+            db.orations().stopInterruptedGate(clock())
+            val log = JobLog(db.joblog())
+            interrupted.filter { it.downloaded }.forEach {
+                log.log(if (it.id == "gate") "stopped" else "queued", it.title, it.id, "process recovery")
+            }
         }
     }
 
