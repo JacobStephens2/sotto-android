@@ -37,7 +37,8 @@ or leaving Lab fences that run's callbacks and cooperatively stops it. A thread
 reload of an admitted diagnostic remains available with ordinary work waiting
 and completes only after blocking work and model close. Explicit Stop retains
 the current run's terminal measurement summary or gate verdict, while fencing
-progress/audio. Supersession, detach, and deletion fence terminal events too. Media-owner
+progress/audio. Supersession, detach, and deletion fence terminal events too,
+including queued callbacks from a matching writer that already drained. Media-owner
 replacement does not stop, recover, claim, or fail an attached Lab run.
 
 The model factory constructs and closes managed synthesizers inside the same

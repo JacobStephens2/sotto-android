@@ -90,6 +90,60 @@ class NarrationCoordinatorTest {
     }
 
     @Test
+    fun `reset fences queued callbacks from a gate whose writer already finished`() = runBlocking {
+        val pending = java.util.concurrent.ConcurrentLinkedDeque<Runnable>()
+        callbackDispatcher = object : CoroutineDispatcher() {
+            override fun dispatch(context: CoroutineContext, block: Runnable) { pending.add(block) }
+        }
+        val events = ConcurrentLinkedQueue<DiagnosticEvent>()
+        val lab = coordinator.attachDiagnostics { events.add(it) }
+        lab.request(DiagnosticRequest.Gate("Single gate chunk.")).await()
+        awaitStatus("gate", "COMPLETE")
+        withTimeout(5_000) { while (models.get() != 0) kotlinx.coroutines.yield() }
+        val beforeOrdinary = pending.size
+
+        // Starting ordinary work proves the gate writer and its terminal message drained.
+        insert("ordinary", "Ordinary.", status = "STOPPED")
+        val owner = coordinator.attach()
+        owner.narrate("ordinary").await()
+        withTimeout(5_000) { while (pending.size == beforeOrdinary) kotlinx.coroutines.yield() }
+        pending.removeLast().run() // Dispatch ordinary work without delivering gate callbacks.
+        awaitStatus("ordinary", "COMPLETE")
+
+        val beforeReset = pending.size
+        val reset = lab.request(DiagnosticRequest.ResetGate)
+        owner.narrate("missing").await()
+        withTimeout(5_000) { while (pending.size == beforeReset) kotlinx.coroutines.yield() }
+        pending.removeLast().run() // Complete the playback-stop barrier first.
+        assertEquals(DiagnosticResult.Reset, withTimeout(5_000) { reset.await() })
+        assertNull(db.orations().byId("gate"))
+        while (true) (pending.poll() ?: break).run()
+        assertTrue("Reset must fence all callbacks from the deleted gate", events.isEmpty())
+    }
+
+    @Test
+    fun `gate deletion fences queued terminal callbacks after the gate writer drained`() = runBlocking {
+        callbackDispatcher = PausedCallbacks()
+        val events = ConcurrentLinkedQueue<DiagnosticEvent>()
+        val lab = coordinator.attachDiagnostics { events.add(it) }
+        assertEquals(DiagnosticResult.Accepted,
+            lab.request(DiagnosticRequest.Gate("Finished gate.")).await())
+        awaitStatus("gate", "COMPLETE")
+        insert("waiting", "Held ordinary.", status = "STOPPED")
+        val owner = coordinator.attach()
+        assertEquals(NarrationCommandResult.Queued, owner.narrate("waiting").await())
+        // An ordinary reservation proves the preceding diagnostic finished and drained.
+        withTimeout(5_000) {
+            while (owner.facts.value.activeId != "waiting") kotlinx.coroutines.yield()
+        }
+        owner.delete("gate")
+        assertEquals(NarrationCommandResult.Deleting, owner.narrate("gate").await())
+        callbackDispatcher.flush()
+        assertFalse("Deletion must fence a completed gate's queued terminal verdict",
+            events.any { it is DiagnosticEvent.Line && it.text.startsWith("GATE COMPLETE") })
+    }
+
+    @Test
     fun `explicit gate Stop retains its terminal verdict after the durable chunk`() = runBlocking {
         val verdict = kotlinx.coroutines.CompletableDeferred<String>()
         val lab = coordinator.attachDiagnostics {

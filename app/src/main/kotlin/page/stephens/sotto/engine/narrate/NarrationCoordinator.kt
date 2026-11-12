@@ -478,10 +478,9 @@ class NarrationCoordinator(
         deleting.add(id)
         active?.takeIf { it.id == id }?.stop?.set(true)
         if (id == "gate") {
-            diagnostic?.takeIf { it.request is DiagnosticRequest.Gate }?.let {
-                it.terminalAllowed.set(false)
-                it.stop.set(true)
-            }
+            fenceGateCallbacks(diagnostic)
+            // Completed writers can still have callbacks queued on the UI thread.
+            fenceGateCallbacks(diagnosticAttachment.get()?.latest?.get())
             pendingDiagnostic?.takeIf { it.request is DiagnosticRequest.Gate }?.let {
                 it.stop.set(true)
                 it.reply.complete(DiagnosticResult.Superseded)
@@ -502,6 +501,13 @@ class NarrationCoordinator(
     private fun finishDeletion(id: String, result: NarrationCommandResult) {
         pendingDeletes.remove(id)?.replies?.forEach { it.complete(result) }
         deleting.remove(id)
+    }
+
+    private fun fenceGateCallbacks(run: DiagnosticRun?) {
+        run?.takeIf { it.request is DiagnosticRequest.Gate }?.let {
+            it.terminalAllowed.set(false)
+            it.stop.set(true)
+        }
     }
 
     private fun execute(run: Run) {

@@ -30,7 +30,7 @@ class DiagnosticControlSpecRegressionTest {
     }
 
     @Test
-    fun stopPreservesMeasurementSummary() = fixture { fixture ->
+    fun `explicit Stop preserves the completed measurement summary`() = fixture { fixture ->
         val events = ConcurrentLinkedQueue<DiagnosticEvent>()
         val lab = fixture.worker.attachDiagnostics { events.add(it) }
         assertEquals(DiagnosticResult.Accepted,
@@ -47,7 +47,7 @@ class DiagnosticControlSpecRegressionTest {
     }
 
     @Test
-    fun threadChangeStopsDiagnosticWithOrdinaryWorkWaiting() = fixture { fixture ->
+    fun `thread change drains diagnostics with ordinary work waiting`() = fixture { fixture ->
         val lab = fixture.worker.attachDiagnostics()
         assertEquals(DiagnosticResult.Accepted,
             lab.request(DiagnosticRequest.Gate("Held gate. " + "More. ".repeat(400))).await())

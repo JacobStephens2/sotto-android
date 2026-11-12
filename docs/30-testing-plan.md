@@ -46,7 +46,8 @@
 
 **Ownership scope**: ordinary and diagnostic callers share the retained worker.
 `NarrationCoordinatorTest` covers contention in both arrival orders, waiting
-ordinary retries and FIFO, gate reset/delete while blocked, thread reload,
+ordinary retries and FIFO, gate reset/delete while blocked and after writer
+drain with callbacks queued, thread reload,
 diagnostic Stop/supersession, Lab detach, media-owner replacement during a gate,
 saved source, and legacy checkpoint recovery. Controlled adapters assert one
 model/generate lifetime, no premature release/mutation, and no late callback.
