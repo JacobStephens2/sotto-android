@@ -63,6 +63,7 @@ class NarrationService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
         session = MediaSession.Builder(this, player).build()
+        attachInApp()
         scope.launch {
             db.orations().requeueInterrupted(System.currentTimeMillis())
             pickupQueue()   // PRD S4: interrupted/queued narration resumes on its own
@@ -73,15 +74,23 @@ class NarrationService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_NARRATE -> intent.getStringExtra(EXTRA_ID)?.let { startNarration(it) }
-            ACTION_PLAY -> intent.getStringExtra(EXTRA_ID)?.let { id -> scope.launch { startPlayback(id) } }
-            ACTION_STOP_NARRATION -> narratingId.set(null)   // engine sees shouldStop at next chunk
-            ACTION_SLEEP_TIMER -> setSleepTimer(intent.getIntExtra(EXTRA_MINUTES, 0))
-            ACTION_DELETE -> intent.getStringExtra(EXTRA_ID)?.let { id -> scope.launch { deleteOration(id) } }
-        }
+        // Exported for the Media3 session, so any app can start this service.
+        // Narrate, play, stop, sleep timer, and delete are ignored here;
+        // InAppNarrationService accepts them in-process (ADR-008). super still
+        // delivers media-button and session intents.
         super.onStartCommand(intent, flags, startId)
         return START_NOT_STICKY
+    }
+
+    private fun performInApp(command: InAppCommand) {
+        when (command) {
+            is InAppCommand.Narrate -> startNarration(command.id)
+            is InAppCommand.Play -> scope.launch { startPlayback(command.id) }
+            // The engine sees shouldStop at the next chunk, or before it starts.
+            InAppCommand.StopNarration -> narratingId.set(null)
+            is InAppCommand.SleepTimer -> setSleepTimer(command.minutes)
+            is InAppCommand.Delete -> scope.launch { deleteOration(command.id) }
+        }
     }
 
     private fun startNarration(id: String) {
@@ -91,58 +100,78 @@ class NarrationService : MediaSessionService() {
             }
             return
         }
-        scope.launch {
-            val dao = db.orations()
-            val log = JobLog(db.joblog())
-            val row = dao.byId(id) ?: run { narratingId.set(null); return@launch }
-            try {
-                val text = File(filesDir, "orations/$id/source.md").readText()
-                val cleaned = TextPipeline.cleanMarkdown(text)
-                dao.setStatus(id, "NARRATING", System.currentTimeMillis())
-                log.log(if (row.chunksDone > 0) "resumed" else "started", row.title, id,
-                    if (row.chunksDone > 0) "from chunk ${row.chunksDone}" else "")
-                val s = synth ?: SherpaSynthesizer(this@NarrationService, numThreads = 4).also { synth = it }
-                var totalSet = row.chunksTotal != null
-                val result = FileAudioSink(audioFile(id)).use { sink ->
-                    NarrationEngine(s, AdtsAacEncoder(s.sampleRate), RoomProgressStore(dao))
-                        .narrate(id, cleaned, row.voiceId, sink,
-                            shouldStop = { narratingId.get() != id },
-                            onProgress = { _, t ->
-                                if (!totalSet) { dao.setChunksTotal(id, t, System.currentTimeMillis()); totalSet = true }
-                            })
-                }
-                when (result) {
-                    is NarrationResult.Complete -> {
-                        dao.setStatus(id, "COMPLETE", System.currentTimeMillis())
-                        log.log("completed", row.title, id, "${result.chunks}ch ${result.audioBytes}B")
-                    }
-                    is NarrationResult.Stopped -> {
-                        dao.setStatus(id, "STOPPED", System.currentTimeMillis())
-                        log.log("stopped", row.title, id, "${result.chunksDone}/${result.totalChunks}")
-                    }
-                    is NarrationResult.StorageFull -> {
-                        // PRD edge case: stop gracefully, keep the partial, say why.
-                        dao.setStatus(id, "STOPPED", System.currentTimeMillis(), STORAGE_FULL)
-                        log.log("stopped", row.title, id, "storage full at ${result.chunksDone}/${result.totalChunks}")
-                    }
-                    is NarrationResult.Failed -> {
-                        dao.setStatus(id, "ERROR", System.currentTimeMillis(), result.cause.message)
-                        log.log("error", row.title, id, result.cause.toString().take(160))
-                    }
-                }
-            } catch (t: Throwable) {
-                dao.setStatus(id, "ERROR", System.currentTimeMillis(), t.message)
-                log.log("error", row.title, id, t.toString().take(160))
-            } finally {
+        // Posted, not run inline, so a stop delivered next on this thread wins
+        // before the model loads.
+        scope.launch(Dispatchers.Main) {
+            if (narratingId.get() != id) {
                 narratingId.compareAndSet(id, null)
-                pickupQueue()   // FIFO: queued orations narrate one after another
+                withContext(Dispatchers.Default) { stopBeforeStart(id) }
+                return@launch
             }
+            withContext(Dispatchers.Default) { runNarration(id) }
         }
         // Listen-now: start playback as soon as the first chunk is durable.
         scope.launch {
             val f = audioFile(id)
             while (narratingId.get() == id && f.length() == 0L) delay(250)
             if (f.length() > 0L && playingId == null) startPlayback(id)
+        }
+    }
+
+    private suspend fun stopBeforeStart(id: String) {
+        val row = db.orations().byId(id)
+        if (row != null && row.status != "COMPLETE") {
+            db.orations().setStatus(id, "STOPPED", System.currentTimeMillis())
+            JobLog(db.joblog()).log("stopped", row.title, id, "before the first chunk")
+        }
+        pickupQueue()
+    }
+
+    private suspend fun runNarration(id: String) {
+        val dao = db.orations()
+        val log = JobLog(db.joblog())
+        val row = dao.byId(id) ?: run { narratingId.set(null); return }
+        try {
+            val text = File(filesDir, "orations/$id/source.md").readText()
+            val cleaned = TextPipeline.cleanMarkdown(text)
+            dao.setStatus(id, "NARRATING", System.currentTimeMillis())
+            log.log(if (row.chunksDone > 0) "resumed" else "started", row.title, id,
+                if (row.chunksDone > 0) "from chunk ${row.chunksDone}" else "")
+            val s = synth ?: SherpaSynthesizer(this@NarrationService, numThreads = 4).also { synth = it }
+            var totalSet = row.chunksTotal != null
+            val result = FileAudioSink(audioFile(id)).use { sink ->
+                NarrationEngine(s, AdtsAacEncoder(s.sampleRate), RoomProgressStore(dao))
+                    .narrate(id, cleaned, row.voiceId, sink,
+                        shouldStop = { narratingId.get() != id },
+                        onProgress = { _, t ->
+                            if (!totalSet) { dao.setChunksTotal(id, t, System.currentTimeMillis()); totalSet = true }
+                        })
+            }
+            when (result) {
+                is NarrationResult.Complete -> {
+                    dao.setStatus(id, "COMPLETE", System.currentTimeMillis())
+                    log.log("completed", row.title, id, "${result.chunks}ch ${result.audioBytes}B")
+                }
+                is NarrationResult.Stopped -> {
+                    dao.setStatus(id, "STOPPED", System.currentTimeMillis())
+                    log.log("stopped", row.title, id, "${result.chunksDone}/${result.totalChunks}")
+                }
+                is NarrationResult.StorageFull -> {
+                    // PRD edge case: stop gracefully, keep the partial, say why.
+                    dao.setStatus(id, "STOPPED", System.currentTimeMillis(), STORAGE_FULL)
+                    log.log("stopped", row.title, id, "storage full at ${result.chunksDone}/${result.totalChunks}")
+                }
+                is NarrationResult.Failed -> {
+                    dao.setStatus(id, "ERROR", System.currentTimeMillis(), result.cause.message)
+                    log.log("error", row.title, id, result.cause.toString().take(160))
+                }
+            }
+        } catch (t: Throwable) {
+            dao.setStatus(id, "ERROR", System.currentTimeMillis(), t.message)
+            log.log("error", row.title, id, t.toString().take(160))
+        } finally {
+            narratingId.compareAndSet(id, null)
+            pickupQueue()   // FIFO: queued orations narrate one after another
         }
     }
 
@@ -154,13 +183,21 @@ class NarrationService : MediaSessionService() {
     }
 
     private var sleepJob: kotlinx.coroutines.Job? = null
+    private var sleepToken = 0
     private fun setSleepTimer(minutes: Int) {
+        // A newer request invalidates a timer whose delayed resume still arrives.
+        val token = ++sleepToken
         sleepJob?.cancel(); sleepJob = null
         if (minutes <= 0) return
-        sleepJob = scope.launch {
+        // The wait does not block the thread. Pausing has to happen on the
+        // player thread, so the timer waits there and the log write hops off it.
+        sleepJob = scope.launch(Dispatchers.Main) {
             delay(minutes * 60_000L)
-            withContext(Dispatchers.Main) { player.pause() }
-            JobLog(db.joblog()).log("sleep-timer", "paused after $minutes min")
+            if (token != sleepToken) return@launch
+            player.pause()
+            withContext(Dispatchers.Default) {
+                JobLog(db.joblog()).log("sleep-timer", "paused after $minutes min")
+            }
         }
     }
 
@@ -222,6 +259,7 @@ class NarrationService : MediaSessionService() {
     private fun audioFile(id: String) = File(filesDir, "orations/$id/audio.aac")
 
     override fun onDestroy() {
+        detachInApp()
         playingId?.let { id ->
             val pos = player.currentPosition
             if (pos > 0) runCatching { db.orations().setPlayhead(id, pos, System.currentTimeMillis()) }
@@ -234,14 +272,42 @@ class NarrationService : MediaSessionService() {
         super.onDestroy()
     }
 
+    private fun attachInApp() {
+        synchronized(inAppGate) {
+            running = this
+            while (pendingInApp.isNotEmpty()) performInApp(pendingInApp.removeFirst())
+        }
+    }
+
+    private fun detachInApp() {
+        synchronized(inAppGate) {
+            if (running === this) running = null
+        }
+    }
+
     companion object {
-        const val ACTION_NARRATE = "page.stephens.sotto.NARRATE"
-        const val ACTION_PLAY = "page.stephens.sotto.PLAY"
-        const val ACTION_STOP_NARRATION = "page.stephens.sotto.STOP_NARRATION"
-        const val ACTION_SLEEP_TIMER = "page.stephens.sotto.SLEEP_TIMER"
-        const val ACTION_DELETE = "page.stephens.sotto.DELETE"
-        const val EXTRA_ID = "orationId"
-        const val EXTRA_MINUTES = "minutes"
+        private val inAppGate = Any()
+        private var running: NarrationService? = null
+        private val pendingInApp = ArrayDeque<InAppCommand>()
+
         const val STORAGE_FULL = "Storage full - free some space, then tap to resume"
+
+        /** Same-process only. [InAppNarrationService] is the caller; an exported
+         *  start cannot reach this, because the command is not on the intent. */
+        internal fun acceptInApp(command: InAppCommand) {
+            synchronized(inAppGate) {
+                val service = running
+                if (service != null) service.performInApp(command)
+                else pendingInApp.addLast(command)
+            }
+        }
+
+        /** Tests share a process, and so does this queue. */
+        internal fun clearInAppForTest() {
+            synchronized(inAppGate) {
+                running = null
+                pendingInApp.clear()
+            }
+        }
     }
 }

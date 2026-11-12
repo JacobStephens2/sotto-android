@@ -42,7 +42,8 @@ Status: planning complete, awaiting SPIKE-001. Updated 2026-06-12.
 
 ## Phase 3 - v1 surface
 
-- [x] Library long-press sheet: rename / delete (service-owned, real deletion) /
+- [x] Library long-press sheet: rename / delete (in-app non-exported command,
+      real deletion; ADR-008) /
       source view / export via SAF - 2026-06-12
 - [x] Player screen over MediaController: seek slider, 15s skips, speed chips
       (0.8-2x), sleep timer (15/30/60, service-side), catching-up state - 2026-06-12

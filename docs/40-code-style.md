@@ -37,6 +37,10 @@ src/sync/      sync flavor only: API client, account screens, sync engine
   runBlocking outside tests.
 - One worker invariant (10-architecture-overview.md) is encoded in the engine,
   not assumed by callers.
+- Narrate, play, stop narration, sleep timer, and delete are started on the
+  non-exported `InAppNarrationService`. `NarrationService.onStartCommand` does
+  not handle them (ADR-008); that service stays exported only for the Media3
+  session.
 - Naming mirrors the domain doc: Oration, chunk, narrate - not "track,"
   "segment," "synthesize" in user-facing or domain code. ("Synthesis" is
   correct inside `synth/`, mirroring the server's wording rule: technical word
