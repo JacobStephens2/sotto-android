@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import page.stephens.sotto.engine.store.FileAudioSink
 import page.stephens.sotto.engine.store.JobLog
 import page.stephens.sotto.engine.store.OrationEntity
+import page.stephens.sotto.engine.store.OrationCreation
 import page.stephens.sotto.engine.store.RoomProgressStore
 import page.stephens.sotto.engine.store.SottoDatabase
 import page.stephens.sotto.engine.text.TextPipeline
@@ -94,6 +95,7 @@ class NarrationCoordinator(
     private val encoderFactory: (Int) -> PcmEncoder,
     private val callbackDispatcher: CoroutineDispatcher = Dispatchers.Main,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val creation: OrationCreation = OrationCreation(db, orationsDir),
     private val diagnosticEnvironment: DiagnosticEnvironment = object : DiagnosticEnvironment {
         override fun elapsedMs() = System.nanoTime() / 1_000_000
         override fun uptimeMs() = elapsedMs()
@@ -171,7 +173,7 @@ class NarrationCoordinator(
         scope.launch {
             try {
                 recoverInterrupted()
-                sweepOrphans()
+                creation.sweepOrphans()
             } catch (t: Exception) {
                 initializationFailure = t
             }
@@ -571,7 +573,7 @@ class NarrationCoordinator(
     }
 
     private fun executeDiagnostic(run: DiagnosticRun) {
-        val execution = DiagnosticExecution(db, orationsDir, encoderFactory, clock, diagnosticEnvironment)
+        val execution = DiagnosticExecution(db, orationsDir, creation, encoderFactory, clock, diagnosticEnvironment)
         val profile = ModelProfile(run.threads, run.request !is DiagnosticRequest.Gate)
         val started = diagnosticEnvironment.elapsedMs()
         val synth = modelFactory.create(profile).also { model = it; modelOwner = run.owner }
@@ -604,13 +606,6 @@ class NarrationCoordinator(
 
     private fun updateFacts() {
         mutableFacts.value = NarrationFacts(active?.id, active?.stop?.get() ?: false, deleting.toSet())
-    }
-
-    private fun sweepOrphans() {
-        orationsDir.listFiles()?.filter { it.isDirectory && db.orations().byId(it.name) == null }?.forEach {
-            val removed = it.deleteRecursively()
-            JobLog(db.joblog()).log(if (removed) "deleted" else "error", it.name, it.name, "orphan cleanup")
-        }
     }
 
     private fun recoverInterrupted() {

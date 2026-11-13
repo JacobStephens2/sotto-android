@@ -1,7 +1,18 @@
 # Tasks - sotto-android (living)
 
 Status: release hardware gates remain; ordinary and Lab narration share retained
-process-wide ownership (issues #15-16). Updated 2026-11-12.
+process-wide ownership (issues #15-16). Updated 2026-11-13.
+
+## Oration creation (issue #20)
+
+- [x] Share ordinary/gate publication and orphan cleanup behind one process
+      OrationCreation instance; publish source before transactional row/log
+- [x] Await local Confirm creation off-main, prevent duplicate submission, and
+      retain fields with retryable save errors
+- [x] Cover real Room/files publication ordering, faults, contention, collisions,
+      orphan remnants, legacy gates, and Confirm success/failure
+- [ ] Validate both flavors' JVM/lint/screenshot checks, relevant Room/gate
+      instrumentation, and Standards/Spec review; record results in `_state.md`
 
 ## Narration ownership (issues #14-16)
 

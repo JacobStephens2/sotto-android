@@ -1,5 +1,28 @@
 # _state.md - sotto-android session handoff
 
+2026-11-13: Issue #20 consolidates ordinary creation, gate preparation, and
+orphan cleanup in `OrationCreation`, shared manually by Confirm and the retained
+coordinator. A private monitor covers source preparation through the new-row
+and created-log transaction, and orphan classification/removal. Pending source
+is fsynced, closed, and renamed before metadata publication. Expected validation
+and storage errors are typed; failure cleanup removes only attempt-owned
+preparation. Existing gate source, audio, checkpoints, narration time, and logs
+survive compatibility repair. The monitor never covers native or chunk work.
+
+Confirm awaits local creation off-main, disables duplicate submission, keeps
+its fields and a retryable message after failure, and sends the existing ID-only
+command only on success. A committed QUEUED row survives missed UI delivery.
+No schema, permissions, text pipeline, sync publication, or ADR change.
+
+Focused validation passes: ten real Room/files creation tests and 36 coordinator
+and Confirm tests, including creation during a blocked native chunk. The Confirm
+blocked-commit regression failed on the old UI because it had already navigated
+to Library; it passes with awaited creation. Both-flavor JVM/lint/screenshot and
+Room/gate instrumentation validation, followed by independent Standards/Spec
+review against `refs/remotes/origin/master`, is in progress.
+
+Earlier entries below describe earlier sessions.
+
 2026-11-12: Spec #14 whole-branch Standards and Spec review compares issue-14
 with `refs/remotes/origin/master` at
 `503cb5d95b0d2ff9670744548583b31b527faaf9`, including both landed Tickets.

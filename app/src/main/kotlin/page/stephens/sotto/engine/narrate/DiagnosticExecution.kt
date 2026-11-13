@@ -2,17 +2,17 @@ package page.stephens.sotto.engine.narrate
 
 import page.stephens.sotto.engine.store.FileAudioSink
 import page.stephens.sotto.engine.store.JobLog
-import page.stephens.sotto.engine.store.OrationEntity
+import page.stephens.sotto.engine.store.GatePreparation
+import page.stephens.sotto.engine.store.OrationCreation
 import page.stephens.sotto.engine.store.RoomProgressStore
 import page.stephens.sotto.engine.store.SottoDatabase
-import page.stephens.sotto.engine.text.TextPipeline
 import java.io.File
-import java.io.FileOutputStream
 
 // Called only by the retained worker, including source, progress, log and encoder work.
 internal class DiagnosticExecution(
     private val db: SottoDatabase,
     private val root: File,
+    private val creation: OrationCreation,
     private val encoderFactory: (Int) -> PcmEncoder,
     private val clock: () -> Long,
     private val environment: DiagnosticEnvironment,
@@ -24,30 +24,17 @@ internal class DiagnosticExecution(
         val outcomes = NarrationOutcomeRecorder(dao, log, clock)
         val title = "Phase 1 gate"
         val started = clock()
+        val prepared = when (val result = creation.prepareGate(text)) {
+            is GatePreparation.Ready -> result
+            is GatePreparation.StorageFailure -> throw result.cause
+        }
         try {
-            val directory = File(root, "gate").also { it.mkdirs() }
-            val source = File(directory, "source.md")
-            // Existing source wins over a different bundle on a later app version.
-            if (!source.exists()) {
-                val pending = File(directory, "source.md.pending")
-                FileOutputStream(pending).use { output ->
-                    output.write(text.toByteArray(Charsets.UTF_8))
-                    output.fd.sync()
-                }
-                check(pending.renameTo(source)) { "Could not save gate source" }
-            }
-            val cleaned = TextPipeline.cleanMarkdown(source.readText())
-            val prior = dao.byId("gate")
-            if (prior == null) {
-                dao.insert(OrationEntity(
-                    id = "gate", title = title, status = "QUEUED", voiceId = "af_heart",
-                    words = cleaned.trim().split(Regex("\\s+")).size, chunksTotal = null,
-                    createdAt = clock(), updatedAt = clock()))
-                log.log("created", title, "gate")
-            }
-            log.log(if (prior == null || prior.chunksDone == 0) "started" else "resumed", title, "gate",
-                "from chunk ${prior?.chunksDone ?: 0}")
-            emit(DiagnosticEvent.Status("gate: resuming from chunk ${prior?.chunksDone ?: 0}"))
+            val directory = File(root, "gate")
+            val cleaned = prepared.cleanedSource
+            val prior = prepared.row
+            log.log(if (prior.chunksDone == 0) "started" else "resumed", title, "gate",
+                "from chunk ${prior.chunksDone}")
+            emit(DiagnosticEvent.Status("gate: resuming from chunk ${prior.chunksDone}"))
             dao.setStatus("gate", "NARRATING", clock())
             val result = FileAudioSink(File(directory, "audio.aac")).use { sink ->
                 NarrationEngine(synth, encoderFactory(synth.sampleRate), RoomProgressStore(dao, clock), clock)

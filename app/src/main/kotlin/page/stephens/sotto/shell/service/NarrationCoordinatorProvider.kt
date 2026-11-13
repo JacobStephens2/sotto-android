@@ -8,6 +8,7 @@ import android.os.SystemClock
 import page.stephens.sotto.engine.narrate.DiagnosticEnvironment
 import page.stephens.sotto.engine.narrate.ManagedSynthesizerFactory
 import page.stephens.sotto.engine.narrate.NarrationCoordinator
+import page.stephens.sotto.engine.store.OrationCreation
 import page.stephens.sotto.engine.store.SottoDatabase
 import page.stephens.sotto.shell.synth.AdtsAacEncoder
 import page.stephens.sotto.shell.synth.SherpaSynthesizer
@@ -15,6 +16,14 @@ import java.io.File
 
 internal object NarrationCoordinatorProvider {
     @Volatile private var instance: NarrationCoordinator? = null
+    @Volatile private var creation: OrationCreation? = null
+
+    fun creation(context: Context): OrationCreation = creation ?: synchronized(this) {
+        creation ?: context.applicationContext.let { app ->
+            OrationCreation(SottoDatabase.open(app), File(app.filesDir, "orations"))
+                .also { creation = it }
+        }
+    }
 
     fun get(context: Context): NarrationCoordinator = instance ?: synchronized(this) {
         instance ?: context.applicationContext.let { app ->
@@ -25,6 +34,7 @@ internal object NarrationCoordinatorProvider {
                         sidOf = if (profile.measurement) { _ -> 0 } else SherpaSynthesizer.DEFAULT_SIDS)
                 },
                 encoderFactory = ::AdtsAacEncoder,
+                creation = creation(app),
                 diagnosticEnvironment = object : DiagnosticEnvironment {
                     override fun elapsedMs() = SystemClock.elapsedRealtime()
                     override fun uptimeMs() = SystemClock.uptimeMillis()
@@ -46,6 +56,6 @@ internal object NarrationCoordinatorProvider {
 
     // Robolectric replaces the Application between tests in one JVM process.
     internal fun shutdownForTest() = synchronized(this) {
-        instance?.shutdown().also { instance = null }
+        instance?.shutdown().also { instance = null; creation = null }
     }
 }
