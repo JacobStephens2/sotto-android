@@ -14,12 +14,42 @@ its fields and a retryable message after failure, and sends the existing ID-only
 command only on success. A committed QUEUED row survives missed UI delivery.
 No schema, permissions, text pipeline, sync publication, or ADR change.
 
-Focused validation passes: ten real Room/files creation tests and 36 coordinator
-and Confirm tests, including creation during a blocked native chunk. The Confirm
-blocked-commit regression failed on the old UI because it had already navigated
-to Library; it passes with awaited creation. Both-flavor JVM/lint/screenshot and
-Room/gate instrumentation validation, followed by independent Standards/Spec
-review against `refs/remotes/origin/master`, is in progress.
+Final validation passes: 94 JVM tests per flavor with zero failures, errors, or
+skips, including ten real Room/files creation tests, two Confirm caller checks,
+creation during a blocked native chunk, seven screenshot comparisons and four
+provenance checks. Both lint checks, debug APKs, and the instrumentation APK
+build pass. Screenshot recording is disabled. Command:
+
+```sh
+JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug assembleLocalDebugAndroidTest -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+The Confirm blocked-commit regression failed on the old UI because it had
+already navigated to Library. The identical focused command now passes all 12
+creation/Confirm tests:
+
+```sh
+JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew testLocalDebugUnitTest --tests '*ConfirmCreationTest' --tests '*OrationCreationTest' -Proborazzi.record=false
+```
+
+Five selected API 34 x86_64 instrumentation tests pass: gate Room/ADTS
+byte-identical resume with legacy source, ordinary Room resume, schema migration,
+and interrupted ordinary/gate recovery. Command:
+
+```sh
+JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ANDROID_SERIAL=emulator-5580 ./gradlew connectedLocalDebugAndroidTest -Pandroid.injected.device.serial=emulator-5580 -Pandroid.testInstrumentationRunnerArguments.class=page.stephens.sotto.engine.DiagnosticResumeTest,page.stephens.sotto.engine.RoomResumeTest,page.stephens.sotto.engine.store.QueueMigrationTest,page.stephens.sotto.engine.store.InterruptedQueueRecoveryTest
+```
+
+Both debug APK manifest guards pass: local has no network permission; sync adds
+INTERNET only. Instrumentation uses deterministic synthesis and real Android AAC
+encoding. No new hardware measurement or emulator performance claim is made.
+
+Independent Standards and Spec review against `refs/remotes/origin/master` at
+`484d91f192425f25940b8072d4a5ed014e1c742a` raised zero findings on either axis.
+Each reviewer read all 13 changed paths; there are no generated exclusions,
+unread changed files, or skipped findings. Reports and counts are saved in
+`.thirdshift-review-BHzCUU/`. The external prose guide referenced by
+`docs/README.md` is absent; repository-local prose rules were reviewed.
 
 Earlier entries below describe earlier sessions.
 

@@ -11,7 +11,7 @@ process-wide ownership (issues #15-16). Updated 2026-11-13.
       retain fields with retryable save errors
 - [x] Cover real Room/files publication ordering, faults, contention, collisions,
       orphan remnants, legacy gates, and Confirm success/failure
-- [ ] Validate both flavors' JVM/lint/screenshot checks, relevant Room/gate
+- [x] Validate both flavors' JVM/lint/screenshot checks, relevant Room/gate
       instrumentation, and Standards/Spec review; record results in `_state.md`
 
 ## Narration ownership (issues #14-16)
