@@ -18,6 +18,20 @@
   deterministic synthesizer and the existing encoder/progress/audio seams.
   Test commands through their public outcomes; keep jobs, run tokens, locks,
   and dispatcher choices private.
+- Oration creation through `create`, `prepareGate`, and `sweepOrphans` with real
+  local Room and temporary files. An internal source publisher has a production
+  file adapter and a controlled test adapter that blocks or fails while keeping
+  real filesystem effects. Hold publication before row insertion, start cleanup,
+  and verify preserved source, one QUEUED row/created log, and later narration.
+  Check typed intake/storage failures, pending and renamed source faults, a
+  SQLite trigger rejecting the created log (row transaction rolls back), ID and
+  directory collisions, abandoned pending/source cleanup, saved gate preference,
+  and legacy repair preserving retained row/audio/checkpoint/log data. A publisher
+  programming error must remain distinguishable from expected storage failures.
+- Confirm caller tests hold a real Room transaction to verify submission stays
+  disabled until commit, and force a filesystem failure then retry to verify
+  retained name/voice/text, no premature command, and ID-only command delivery
+  after success. A committed QUEUED row survives an absent UI command.
 - Hold one chunk with a latch or controlled adapter, then request Stop, another
   oration, a busy retry, duplicate same-ID narration, deletion, and
   detach/replacement. Assert no overlapping model or generate lifetime, no

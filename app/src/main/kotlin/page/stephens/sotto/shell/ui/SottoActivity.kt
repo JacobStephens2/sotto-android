@@ -72,6 +72,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import page.stephens.sotto.engine.store.JobLog
+import page.stephens.sotto.engine.store.CreationResult
 import page.stephens.sotto.engine.store.JobLogEntity
 import page.stephens.sotto.engine.store.OrationEntity
 import page.stephens.sotto.engine.store.SottoDatabase
@@ -79,8 +80,8 @@ import page.stephens.sotto.engine.text.Intake
 import page.stephens.sotto.engine.text.Titles
 import page.stephens.sotto.shell.service.InAppNarrationService
 import page.stephens.sotto.shell.service.NarrationService
+import page.stephens.sotto.shell.service.NarrationCoordinatorProvider
 import java.io.File
-import java.util.UUID
 
 private val VOICES = listOf(
     "af_heart" to "Heart · US female",
@@ -213,8 +214,10 @@ class SottoActivity : ComponentActivity() {
         var onServer by remember { mutableStateOf(false) }
         var serverPct by remember { mutableStateOf<Int?>(null) }   // non-null while a server job runs
         var serverErr by remember { mutableStateOf<String?>(null) }
+        var saving by remember { mutableStateOf(false) }
+        var saveError by remember { mutableStateOf<String?>(null) }
         val scope = rememberCoroutineScope()
-        val busy = serverPct != null
+        val busy = saving || serverPct != null
         val openaiVoices = server?.openaiVoices ?: emptyList()
 
         Scaffold(topBar = { TopAppBar(title = { Text("New oration") }) }) { pad ->
@@ -261,7 +264,12 @@ class SottoActivity : ComponentActivity() {
                 }
 
                 Spacer(Modifier.height(12.dp))
-                if (busy) {
+                if (saving) Text("Saving oration...", style = MaterialTheme.typography.bodyMedium)
+                saveError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                }
+                if (serverPct != null) {
                     Text("Narrating on server · ${serverPct}%", style = MaterialTheme.typography.bodyMedium)
                     LinearProgressIndicator(progress = { (serverPct ?: 0) / 100f },
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
@@ -274,8 +282,30 @@ class SottoActivity : ComponentActivity() {
                 }
 
                 Button(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = {
+                    if (saving || serverPct != null) return@Button
                     val finalTitle = title.ifBlank { Titles.derive(text) }
-                    if (!onServer) { narrate(text, finalTitle, voice); onDone(); return@Button }
+                    if (!onServer) {
+                        saving = true
+                        saveError = null
+                        scope.launch {
+                            try {
+                                when (val result = withContext(Dispatchers.IO) {
+                                    NarrationCoordinatorProvider.creation(applicationContext).create(text, finalTitle, voice)
+                                }) {
+                                    is CreationResult.Created -> {
+                                        svc(InAppNarrationService.ACTION_NARRATE, result.id)
+                                        onDone()
+                                    }
+                                    CreationResult.Empty -> saveError = "Nothing to narrate - add some text and try again."
+                                    is CreationResult.TooLarge -> saveError = "Too long to narrate - the limit is 400 KB. Shorten the text and try again."
+                                    is CreationResult.StorageFailure -> saveError = "Could not save the oration. Check available storage and try again."
+                                }
+                            } finally {
+                                saving = false
+                            }
+                        }
+                        return@Button
+                    }
                     val s = sync ?: return@Button
                     scope.launch {
                         serverErr = null; serverPct = 0
@@ -306,21 +336,6 @@ class SottoActivity : ComponentActivity() {
                 setDataSource(fd.fileDescriptor, fd.startOffset, fd.length)
             }
             prepare(); start()
-        }
-    }
-
-    private fun narrate(text: String, title: String, voice: String) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val id = UUID.randomUUID().toString()
-            File(filesDir, "orations/$id").mkdirs()
-            File(filesDir, "orations/$id/source.md").writeText(text)
-            val now = System.currentTimeMillis()
-            db.orations().insert(OrationEntity(
-                id = id, title = title, status = "QUEUED", voiceId = voice,
-                words = text.trim().split(Regex("\\s+")).size, chunksTotal = null,
-                createdAt = now, updatedAt = now))
-            JobLog(db.joblog()).log("created", title, id, "voice=$voice")
-            svc(InAppNarrationService.ACTION_NARRATE, id)
         }
     }
 

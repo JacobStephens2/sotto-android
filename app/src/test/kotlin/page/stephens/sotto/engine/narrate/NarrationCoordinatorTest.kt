@@ -13,6 +13,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import page.stephens.sotto.engine.store.OrationEntity
+import page.stephens.sotto.engine.store.OrationCreation
+import page.stephens.sotto.engine.store.CreationResult
 import page.stephens.sotto.engine.store.SottoDatabase
 import java.io.File
 import java.nio.file.Files
@@ -45,6 +47,7 @@ class NarrationCoordinatorTest {
         override fun pssKb() = 2048L
     }
     private var callbackDispatcher: CoroutineDispatcher = Dispatchers.Unconfined
+    private val creation by lazy { OrationCreation(db, root) }
     private val coordinator by lazy { NarrationCoordinator(
         db, root,
         ManagedSynthesizerFactory { profile ->
@@ -77,6 +80,7 @@ class NarrationCoordinatorTest {
         },
         callbackDispatcher = callbackDispatcher,
         diagnosticEnvironment = environment,
+        creation = creation,
     ) }
 
     @After
@@ -87,6 +91,23 @@ class NarrationCoordinatorTest {
         db.close()
         root.deleteRecursively()
         Unit
+    }
+
+    @Test
+    fun `ordinary creation does not wait for a blocked native chunk`() = runBlocking {
+        insert("held", "Held ordinary.", status = "STOPPED")
+        coordinator.attach().narrate("held").await()
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        val result = withTimeout(5_000) {
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                creation.create("Another document.", "Created while busy", "af_heart")
+            }
+        }
+        assertTrue(result is CreationResult.Created)
+        val id = (result as CreationResult.Created).id
+        assertEquals("QUEUED", db.orations().byId(id)!!.status)
+        assertEquals("Another document.", File(root, "$id/source.md").readText())
+        assertEquals(1L, release.count)
     }
 
     @Test

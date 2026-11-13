@@ -14,7 +14,7 @@ artifacts. Layout mirrors the server's library sidecar convention (`.mp3` +
 | title | String(120) | Verbatim user name, else heading-derived (server `convert()` rule) |
 | status | enum | see state machine |
 | voiceId | String | one of the 7 `KOKORO_VOICES` |
-| words | Int | word count of cleaned text |
+| words | Int | ordinary intake text word count; gate uses cleaned saved text |
 | chunksTotal | Int | set when chunking completes |
 | chunksDone | Int | progress; resume point |
 | audioBytes | Long | last durable byte offset; truncate-to here on resume |
@@ -29,6 +29,22 @@ artifacts. Layout mirrors the server's library sidecar convention (`.mp3` +
 | downloaded | Bool | false for SERVER_ONLY rows (metadata known, audio not yet fetched) |
 
 Files: `orations/<id>/audio.aac` (ADTS AAC), `orations/<id>/source.md`.
+
+Ordinary and new gate publication uses `OrationCreation`: write a unique
+same-directory pending source, fsync and close it, then rename to `source.md`
+before inserting the row and created log together in one Room transaction.
+Ordinary IDs are generated inside creation; an existing row or directory is
+refused without overwriting or removing it. Intake rejects empty or over-400-KB
+input through typed outcomes. Expected storage failures leave no new row or
+created log, and remove only attempt-owned artifacts best effort. An abandoned
+rowless directory, including pending remnants, is reclaimable at startup.
+
+Creation and orphan classification/removal share a private process monitor,
+so sweeping cannot remove a live preparation before its row commits. Every
+directory with a row survives sweeping. This is ordered filesystem/Room
+publication, not a cross-store atomic transaction or a power-loss guarantee.
+Schema and queue ordering are unchanged. Sync library/download publication
+keeps its separate metadata-first protocol.
 
 Schema v2 adds `queuedAt`. The v1 migration initializes it from `createdAt`
 without rebuilding rows or changing titles, sync metadata, listening positions,
@@ -124,7 +140,8 @@ removing files or progress; the append-only log remains.
   current run's terminal measurement summary or gate verdict. Progress/audio
   are fenced on Stop; supersession, detach, and deletion also fence terminal events.
 - Gate uses reserved ID `gate`, title `Phase 1 gate`, and voice `af_heart`.
-  New runs fsync source text before row creation. Explicit legacy resumption
+  New runs use the same source publication and row/log transaction as ordinary
+  creation. Explicit legacy resumption
   writes the supplied bundled text if `source.md` is missing; otherwise saved
   text wins. Existing durable audio/checkpoint/narration time and log survive
   recovery and resume. An interrupted gate becomes STOPPED once per process.
@@ -136,8 +153,9 @@ removing files or progress; the append-only log remains.
 2. `chunksDone` and `audioBytes` move together in one Room transaction.
 3. `title` is never derived twice: derived at creation, then only user renames
    touch it.
-4. An oration directory without a Room row is orphaned; startup retries its
-   removal and logs the result. A local row whose source is missing yields an
+4. An oration directory without a Room row is orphaned outside live publication;
+   startup classifies/removes it under the creation monitor and logs removal or
+   failure. A local row whose source is missing yields an
    ordinary failure and does not prevent pickup of later queued rows.
 5. In the `local` flavor the sync columns are always null/false and no entity
    stores account ids or URLs - nothing to sync, nothing to leak. In the `sync`

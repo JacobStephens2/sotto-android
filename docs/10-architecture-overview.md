@@ -40,6 +40,15 @@ share sheet / file open / paste
   (1,000-char sentence-boundary chunks). Deterministic, validated against test
   vectors generated from the Python originals. These two functions are the
   shared-DNA between the server and this app; the test vectors are the contract.
+- **OrationCreation** - ordinary creation, gate preparation, and startup orphan
+  sweeping share one manually wired process instance. Its private monitor covers
+  directory preparation, same-directory pending source write/fsync/close/rename,
+  and the Room transaction publishing the row and created log. Sweeping classifies
+  and removes rowless directories under that same monitor. Expected validation
+  and storage failures return typed results; rollback removes only preparation
+  owned by that attempt, best effort. Saved gate source wins; explicit legacy
+  repair retains the row, audio, checkpoint, narration time, and existing log.
+  No model construction, inference, encoding, or chunk writes hold this monitor.
 - **NarrationCoordinator** - owns ordinary queue admission, run identity,
   cooperative Stop, deletion barriers, outcome persistence, and pickup. It is
   retained once per process and manually wired by the shell. An attached
@@ -95,7 +104,12 @@ share sheet / file open / paste
   Leaving Lab detaches and fences callbacks immediately; retained cleanup
   drains blocking work off-main.
 - **UI** - four screens (Confirm, Player, Library, About), Material 3, single
-  activity, Navigation-Compose. Share intents land on Confirm.
+  activity, Navigation-Compose. Share intents land on Confirm. Confirm disables
+  repeated local submission while awaiting creation off-main. A typed failure
+  stays on Confirm with its text, name, and voice available for retry. Only a
+  successful creation sends the ID-only non-exported narrate command and returns
+  to Library. If the UI disappears before delivery, the committed QUEUED row
+  remains available for ordinary pickup by an attached owner.
 
 ### Sync (flavor `sync` only, package `src/sync/`)
 
