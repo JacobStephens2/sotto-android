@@ -19,7 +19,41 @@ The ordinary clock regression failed on the baseline with
 JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew testLocalDebugUnitTest --tests '*NarrationCoordinatorTest.ordinary durable progress and lifecycle use the injected clock' -Proborazzi.record=false -Proborazzi.verify=true
 ```
 
-Validation and independent review results for this session follow when complete.
+Final validation passes: 110 JVM tests per flavor with no failures, errors, or
+skips, both Android lint checks, both debug APKs, and the instrumentation APK.
+Screenshot recording is disabled and verification enabled. Command:
+
+```sh
+JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug assembleLocalDebugAndroidTest -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+Both debug APK manifest guards pass: local has no network permissions, and
+sync adds INTERNET only. Existing vectors, flavor provenance, independent
+chunk-engine durability, creation, ownership, replacement, deletion/reset,
+stopped gate verdict, measurement, and command-routing coverage remain green.
+The 14 new contract tests use real Room and temporary files. Test publication
+waits for startup cleanup acknowledgment; the previous-model close test uses
+the existing deletion barrier and waits for the earlier writer to drain.
+
+Room/ADTS instrumentation is blocked by the concrete host environment. The
+selected command fails with `DeviceException: No connected devices!`:
+
+```sh
+JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew connectedLocalDebugAndroidTest -Pandroid.injected.device.serial=emulator-5582 -Pandroid.testInstrumentationRunnerArguments.class=page.stephens.sotto.engine.DiagnosticResumeTest,page.stephens.sotto.engine.RoomResumeTest,page.stephens.sotto.engine.store.QueueMigrationTest,page.stephens.sotto.engine.store.InterruptedQueueRecoveryTest
+```
+
+`/home/jacob/Android/Sdk/platform-tools/adb devices -l` lists no device, and
+`/home/jacob/Android/Sdk/emulator/emulator -accel-check` exits 11 because this
+user lacks permission to use `/dev/kvm`. No instrumentation or real-model
+performance result is claimed for this session.
+
+Independent Standards and Spec review against `refs/remotes/origin/master` at
+`7e70f1c3d0e2d370442fa9dfad6e4d975ac07ddd` raised zero actionable findings on
+either axis. Each reviewer read all 12 changed paths, including the deleted
+outcome recorder; there are no generated exclusions, unread changed paths, or
+skipped findings. Reports and counts are saved in `.thirdshift-review-9EkXEL/`.
+The external prose guide referenced by `docs/README.md` is absent; available
+repository prose rules were reviewed.
 
 2026-11-13: Issue #20 consolidates ordinary creation, gate preparation, and
 orphan cleanup in `OrationCreation`, shared manually by Confirm and the retained

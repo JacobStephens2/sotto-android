@@ -11,7 +11,7 @@ process-wide ownership (issues #15-16). Updated 2026-11-14.
       differences, with one injected clock throughout shared execution
 - [x] Cover attached-command setup/chunk/preparation failures and clocks with
       real Room/files, including Stop/detach during previous-model close
-- [ ] Validate both flavors' JVM/lint/screenshot checks, relevant Room/ADTS
+- [x] Validate both flavors' JVM/lint/screenshot checks, relevant Room/ADTS
       instrumentation or concrete blocker, manifest guards, and Standards/Spec review
 
 ## Oration creation (issue #20)
