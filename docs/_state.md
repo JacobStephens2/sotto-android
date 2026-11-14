@@ -1,5 +1,60 @@
 # _state.md - sotto-android session handoff
 
+2026-11-14: Issue #22 consolidates durable ordinary and gate execution in
+internal `OrationNarration`. Typed ordinary-ID/gate-bundle requests hide source
+preparation, lifecycle writes, real sink closure, chunk metadata/logs, and
+outcome/failure recording. The standalone outcome recorder is removed.
+ADR-009's coordinator remains the sole Narration worker owner: admission,
+queue order, Stop, deletion, attachments, callback fencing, first-audio
+deduplication, and managed model lifetime stay there. Measurement arithmetic
+and gate presentation stay in diagnostic execution. This reversible internal
+change needs no new ADR, schema, permissions, text vectors, or hardware claims.
+
+One injected execution clock now reaches lifecycle logging, Room progress,
+chunk metadata, narration time deltas, and terminal outcomes for both callers.
+The ordinary clock regression failed on the baseline with
+`expected:<100> but was:<1794646514820>` and passes after consolidation:
+
+```sh
+JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew testLocalDebugUnitTest --tests '*NarrationCoordinatorTest.ordinary durable progress and lifecycle use the injected clock' -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+Final validation passes: 110 JVM tests per flavor with no failures, errors, or
+skips, both Android lint checks, both debug APKs, and the instrumentation APK.
+Screenshot recording is disabled and verification enabled. Command:
+
+```sh
+JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug assembleLocalDebugAndroidTest -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+Both debug APK manifest guards pass: local has no network permissions, and
+sync adds INTERNET only. Existing vectors, flavor provenance, independent
+chunk-engine durability, creation, ownership, replacement, deletion/reset,
+stopped gate verdict, measurement, and command-routing coverage remain green.
+The 14 new contract tests use real Room and temporary files. Test publication
+waits for startup cleanup acknowledgment; the previous-model close test uses
+the existing deletion barrier and waits for the earlier writer to drain.
+
+Room/ADTS instrumentation is blocked by the concrete host environment. The
+selected command fails with `DeviceException: No connected devices!`:
+
+```sh
+JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew connectedLocalDebugAndroidTest -Pandroid.injected.device.serial=emulator-5582 -Pandroid.testInstrumentationRunnerArguments.class=page.stephens.sotto.engine.DiagnosticResumeTest,page.stephens.sotto.engine.RoomResumeTest,page.stephens.sotto.engine.store.QueueMigrationTest,page.stephens.sotto.engine.store.InterruptedQueueRecoveryTest
+```
+
+`/home/jacob/Android/Sdk/platform-tools/adb devices -l` lists no device, and
+`/home/jacob/Android/Sdk/emulator/emulator -accel-check` exits 11 because this
+user lacks permission to use `/dev/kvm`. No instrumentation or real-model
+performance result is claimed for this session.
+
+Independent Standards and Spec review against `refs/remotes/origin/master` at
+`7e70f1c3d0e2d370442fa9dfad6e4d975ac07ddd` raised zero actionable findings on
+either axis. Each reviewer read all 12 changed paths, including the deleted
+outcome recorder; there are no generated exclusions, unread changed paths, or
+skipped findings. Reports and counts are saved in `.thirdshift-review-9EkXEL/`.
+The external prose guide referenced by `docs/README.md` is absent; available
+repository prose rules were reviewed.
+
 2026-11-13: Issue #20 consolidates ordinary creation, gate preparation, and
 orphan cleanup in `OrationCreation`, shared manually by Confirm and the retained
 coordinator. A private monitor covers source preparation through the new-row

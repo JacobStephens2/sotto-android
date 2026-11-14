@@ -1,69 +1,44 @@
 package page.stephens.sotto.engine.narrate
 
-import page.stephens.sotto.engine.store.FileAudioSink
-import page.stephens.sotto.engine.store.JobLog
-import page.stephens.sotto.engine.store.GatePreparation
-import page.stephens.sotto.engine.store.OrationCreation
-import page.stephens.sotto.engine.store.RoomProgressStore
-import page.stephens.sotto.engine.store.SottoDatabase
-import java.io.File
-
-// Called only by the retained worker, including source, progress, log and encoder work.
+// Presentation and measurement on the retained lane; durable gates use shared narration.
 internal class DiagnosticExecution(
-    private val db: SottoDatabase,
-    private val root: File,
-    private val creation: OrationCreation,
-    private val encoderFactory: (Int) -> PcmEncoder,
+    private val narration: OrationNarration,
     private val clock: () -> Long,
     private val environment: DiagnosticEnvironment,
 ) {
     fun gate(text: String, synth: Synthesizer, stopped: () -> Boolean,
         emit: (DiagnosticEvent) -> Unit, finish: (DiagnosticEvent) -> Unit) {
-        val dao = db.orations()
-        val log = JobLog(db.joblog(), clock)
-        val outcomes = NarrationOutcomeRecorder(dao, log, clock)
-        val title = "Phase 1 gate"
         val started = clock()
-        val prepared = when (val result = creation.prepareGate(text)) {
-            is GatePreparation.Ready -> result
-            is GatePreparation.StorageFailure -> throw result.cause
-        }
-        try {
-            val directory = File(root, "gate")
-            val cleaned = prepared.cleanedSource
-            val prior = prepared.row
-            log.log(if (prior.chunksDone == 0) "started" else "resumed", title, "gate",
-                "from chunk ${prior.chunksDone}")
-            emit(DiagnosticEvent.Status("gate: resuming from chunk ${prior.chunksDone}"))
-            dao.setStatus("gate", "NARRATING", clock())
-            val result = FileAudioSink(File(directory, "audio.aac")).use { sink ->
-                NarrationEngine(synth, encoderFactory(synth.sampleRate), RoomProgressStore(dao, clock), clock)
-                    .narrate("gate", cleaned, "af_heart", sink, shouldStop = stopped,
-                        onProgress = { done, total ->
-                            dao.setChunksTotal("gate", total, clock())
-                            log.log("chunk-done", title, "gate", "$done/$total")
-                            emit(DiagnosticEvent.Status("gate: chunk $done / $total · thermal ${environment.thermal()} · batt ${environment.batteryPct()}%"))
-                        })
+        val outcome = narration.narrate(OrationNarrationRequest.Gate(text), stopped,
+            acquire = { SynthesizerAcquisition.Ready(synth) },
+            observe = { observation ->
+                when (observation) {
+                    is OrationNarrationObservation.Prepared ->
+                        emit(DiagnosticEvent.Status("gate: resuming from chunk ${observation.row.chunksDone}"))
+                    is OrationNarrationObservation.ChunkCommitted ->
+                        emit(DiagnosticEvent.Status("gate: chunk ${observation.row.chunksDone} / ${observation.total} · thermal ${environment.thermal()} · batt ${environment.batteryPct()}%"))
+                }
+            })
+        when (outcome) {
+            is OrationNarrationOutcome.Failed -> throw outcome.cause
+            is OrationNarrationOutcome.Executed -> {
+                val verdict = when (val result = outcome.result) {
+                    is NarrationResult.Complete -> {
+                        "GATE COMPLETE: ${result.chunks} chunks, ${result.audioBytes / 1048576}MB, " +
+                            "narrated %.1f min this+prior runs, wall %.1f min this run"
+                                .format(result.narratedMs / 60000.0, (clock() - started) / 60000.0)
+                    }
+                    is NarrationResult.Stopped -> {
+                        "gate stopped at ${result.chunksDone}/${result.totalChunks} (re-tap to resume)"
+                    }
+                    is NarrationResult.StorageFull -> {
+                        "gate stopped: storage full at ${result.chunksDone}/${result.totalChunks} (free space, re-tap to resume)"
+                    }
+                    is NarrationResult.Failed -> throw result.cause
+                }
+                finish(DiagnosticEvent.Line(verdict))
             }
-            outcomes.record("gate", title, result)
-            val verdict = when (result) {
-                is NarrationResult.Complete -> {
-                    "GATE COMPLETE: ${result.chunks} chunks, ${result.audioBytes / 1048576}MB, " +
-                        "narrated %.1f min this+prior runs, wall %.1f min this run"
-                            .format(result.narratedMs / 60000.0, (clock() - started) / 60000.0)
-                }
-                is NarrationResult.Stopped -> {
-                    "gate stopped at ${result.chunksDone}/${result.totalChunks} (re-tap to resume)"
-                }
-                is NarrationResult.StorageFull -> {
-                    "gate stopped: storage full at ${result.chunksDone}/${result.totalChunks} (free space, re-tap to resume)"
-                }
-                is NarrationResult.Failed -> throw result.cause
-            }
-            finish(DiagnosticEvent.Line(verdict))
-        } catch (t: Throwable) {
-            outcomes.recordFailure("gate", title, t)
-            throw t
+            OrationNarrationOutcome.Missing, OrationNarrationOutcome.StoppedBeforeExecution -> Unit
         }
     }
 

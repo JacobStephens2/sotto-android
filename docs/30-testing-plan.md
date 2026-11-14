@@ -67,6 +67,19 @@ saved source, and legacy checkpoint recovery. Controlled adapters assert one
 model/generate lifetime, no premature release/mutation, and no late callback.
 Measurement tests use fixed clock/battery/thermal/memory observations and known
 arithmetic. Keep independent `NarrationEngine` durability/resume tests.
+`NarrationCoordinatorTest` also distinguishes the execution clock from wall
+time for both ordinary and gate lifecycle/progress/chunk/outcome writes. Its
+ordinary listen-now observation receives the first saved durable row once per
+run; gate observations retain progress content and the terminal time detail.
+`OrationNarrationContractTest` exercises attached commands with real Room and
+temporary files for model/encoder construction, encoding after a saved chunk,
+storage full, gate synthesis failure, and gate source preparation failure.
+It asserts rows/logs, retained bytes, diagnostic errors/verdicts, and continued
+ordinary pickup. A controlled previous-model close receives Stop or detach
+before release, proving that no replacement model or sink is constructed.
+Gate early Stop still happens after model loading and before preparation, and
+a completed final chunk still wins over Stop. These tests cover shared durable
+execution without calling its internal operation directly.
 `DiagnosticControlSpecRegressionTest` retains the review regressions for a
 stopped measurement summary and thread reload with waiting ordinary work.
 `NarrationCommandsTest` exercises the actual Lab gate playback/reset controls

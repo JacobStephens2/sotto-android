@@ -1,7 +1,18 @@
 # Tasks - sotto-android (living)
 
 Status: release hardware gates remain; ordinary and Lab narration share retained
-process-wide ownership (issues #15-16). Updated 2026-11-13.
+process-wide ownership (issues #15-16). Updated 2026-11-14.
+
+## Durable Oration narration (issue #22)
+
+- [x] Share ordinary/gate source preparation, lifecycle, chunk metadata/logs,
+      sink closure, and outcomes in one internal operation; absorb outcome recorder
+- [x] Preserve retained coordination/model lifetime and finite ordinary/gate
+      differences, with one injected clock throughout shared execution
+- [x] Cover attached-command setup/chunk/preparation failures and clocks with
+      real Room/files, including Stop/detach during previous-model close
+- [x] Validate both flavors' JVM/lint/screenshot checks, relevant Room/ADTS
+      instrumentation or concrete blocker, manifest guards, and Standards/Spec review
 
 ## Oration creation (issue #20)
 

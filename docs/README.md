@@ -40,6 +40,7 @@ Paths are relative to `app/src/main/kotlin/page/stephens/sotto/`.
 | Concern | Start here |
 |---|---|
 | Ordinary admission, Stop, deletion, attachment, and retained ownership | `engine/narrate/NarrationCoordinator.kt` |
+| Shared ordinary/gate source, lifecycle, chunk metadata, sink closure, and outcomes | `engine/narrate/OrationNarration.kt` |
 | Durable chunk execution and resume | `engine/narrate/NarrationEngine.kt` |
 | Oration rows, queue order, recovery, and migration | `engine/store/Db.kt` |
 | Audio append, truncate, and fsync | `engine/store/FileAudioSink.kt` |
@@ -52,6 +53,10 @@ For ownership changes, read [ADR-009](adr/ADR-009-retained-narration-ownership.m
 and the interface tests before following private control or execution details.
 Issues #15 and #16 cover ordinary and diagnostic callers through the same
 retained worker. Lab owns neither a model nor an inference executor.
+Issue #22 consolidates their durable execution behind an internal operation;
+`DiagnosticExecution` keeps gate presentation and measurement. Read the
+architecture overview for its injected-clock policy and the attached-command
+contract tests before following its persistence implementation.
 
 ## Deliberately skipped
 

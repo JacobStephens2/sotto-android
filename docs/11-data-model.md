@@ -59,6 +59,22 @@ Events: created, queued, started, resumed, chunk-done (after saved durability),
 stopped, completed, error, deleted, exported, renamed. Viewable in About →
 Activity log. Never leaves the device.
 
+Ordinary and gate execution record their lifecycle through one internal
+`OrationNarration` operation on the retained Narration worker lane (ADR-009).
+After each chunk, the engine fsyncs audio and saves progress before this
+operation saves `chunksTotal`, appends `chunk-done`, and emits the saved row.
+The sink closes before the terminal status/log is recorded. Complete, Stop,
+storage full, and failure produce one terminal lifecycle event when persistence
+succeeds. Gate completion detail also includes accumulated `narratedMs`.
+
+The operation uses one injected clock for lifecycle log `at`, progress and
+chunk metadata `updatedAt`, terminal status/logs, and narration time deltas.
+The production clock remains wall time. This policy does not change queue
+ordering, schema, creation, recovery, or measurement arithmetic. Source, model,
+encoder, sink, and chunk failures after a row is established record ERROR once.
+Gate preparation failure before readiness and model failure before execution
+remain diagnostic errors without inventing a row or rewriting a checkpoint.
+
 ### Settings (single row / DataStore)
 
 `lastVoiceId` (S1 preselect), `playbackSpeed`, `sleepTimerDefault`,

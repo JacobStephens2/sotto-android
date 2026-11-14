@@ -13,13 +13,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import page.stephens.sotto.engine.store.FileAudioSink
 import page.stephens.sotto.engine.store.JobLog
 import page.stephens.sotto.engine.store.OrationEntity
 import page.stephens.sotto.engine.store.OrationCreation
-import page.stephens.sotto.engine.store.RoomProgressStore
 import page.stephens.sotto.engine.store.SottoDatabase
-import page.stephens.sotto.engine.text.TextPipeline
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -122,6 +119,7 @@ class NarrationCoordinator(
     private var modelOwner: Any? = null
     private var shutdownReply: CompletableDeferred<Unit>? = null
     private var initializationFailure: Throwable? = null
+    private val narration = OrationNarration(db, orationsDir, creation, encoderFactory, clock)
 
     internal class Run(val owner: AttachedNarrator, val id: String) {
         val stop = AtomicBoolean(false)
@@ -519,43 +517,21 @@ class NarrationCoordinator(
     }
 
     private fun execute(run: Run) {
-        val row = db.orations().byId(run.id) ?: return
-        val log = JobLog(db.joblog())
-        val outcomes = NarrationOutcomeRecorder(db.orations(), log, clock)
-        try {
-            if (run.stop.get() || !run.owner.valid.get()) {
-                db.orations().setStatus(row.id, "STOPPED", clock())
-                log.log("stopped", row.title, row.id, "before the first chunk")
-                return
-            }
-            val cleaned = TextPipeline.cleanMarkdown(File(orationsDir, "${row.id}/source.md").readText())
-            db.orations().setStatus(row.id, "NARRATING", clock())
-            log.log(if (row.chunksDone > 0) "resumed" else "started", row.title, row.id)
-            if (modelOwner !== run.owner) closeModel()
-            // Detach and stop can also arrive while source I/O is in flight.
-            if (run.stop.get() || !run.owner.valid.get()) {
-                db.orations().setStatus(row.id, "STOPPED", clock())
-                log.log("stopped", row.title, row.id, "before model load")
-                return
-            }
-            val synth = model ?: modelFactory.create(ModelProfile()).also { model = it; modelOwner = run.owner }
-            val result = FileAudioSink(File(orationsDir, "${row.id}/audio.aac")).use { sink ->
-                NarrationEngine(synth, encoderFactory(synth.sampleRate), RoomProgressStore(db.orations()), clock)
-                    .narrate(row.id, cleaned, row.voiceId, sink,
-                        shouldStop = { run.stop.get() || !run.owner.valid.get() },
-                        onProgress = { done, total ->
-                            db.orations().setChunksTotal(row.id, total, clock())
-                            log.log("chunk-done", row.title, row.id, "$done/$total")
-                            if (!run.audioPosted) {
-                                run.audioPosted = true
-                                db.orations().byId(row.id)?.let { saved -> postAudio(run, saved) }
-                            }
-                        })
-            }
-            outcomes.record(row.id, row.title, result)
-        } catch (t: Throwable) {
-            outcomes.recordFailure(row.id, row.title, t)
-        }
+        narration.narrate(OrationNarrationRequest.Ordinary(run.id),
+            stopped = { run.stop.get() || !run.owner.valid.get() },
+            acquire = {
+                if (modelOwner !== run.owner) closeModel()
+                // Stop and detach during a previous owner's blocking close must win.
+                if (run.stop.get() || !run.owner.valid.get()) SynthesizerAcquisition.Stopped
+                else SynthesizerAcquisition.Ready(model ?: modelFactory.create(ModelProfile())
+                    .also { model = it; modelOwner = run.owner })
+            },
+            observe = { observation ->
+                if (observation is OrationNarrationObservation.ChunkCommitted && !run.audioPosted) {
+                    run.audioPosted = true
+                    postAudio(run, observation.row)
+                }
+            })
     }
 
     private fun postAudio(run: Run, row: OrationEntity) {
@@ -573,7 +549,7 @@ class NarrationCoordinator(
     }
 
     private fun executeDiagnostic(run: DiagnosticRun) {
-        val execution = DiagnosticExecution(db, orationsDir, creation, encoderFactory, clock, diagnosticEnvironment)
+        val execution = DiagnosticExecution(narration, clock, diagnosticEnvironment)
         val profile = ModelProfile(run.threads, run.request !is DiagnosticRequest.Gate)
         val started = diagnosticEnvironment.elapsedMs()
         val synth = modelFactory.create(profile).also { model = it; modelOwner = run.owner }
