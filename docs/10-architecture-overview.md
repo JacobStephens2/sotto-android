@@ -17,7 +17,7 @@ share sheet / file open / paste
 │  NarrationService (foreground, mediaPlayback type)                 │
 │    ├── attached narrator → process NarrationCoordinator (engine)   │
 │    │     admission → one retained process-wide execution lane     │
-│    │     └── NarrationEngine → managed model → PCM → encoder      │
+│    │     └── OrationNarration → NarrationEngine → model → encoder │
 │    │           └── fsync audio → persist progress → durable event │
 │    └── Media3 ExoPlayer ← plays the growing ADTS audio file        │
 │  Lab → typed diagnostics → same NarrationCoordinator lane        │
@@ -55,8 +55,21 @@ share sheet / file open / paste
   narrator exposes `narrate(id)`, `stop()`, and `delete(id)` with typed
   `Deferred` outcomes, observable narration facts, and nonblocking detach.
   No caller receives the engine job, native model, or mutable stop predicate.
-  Ordinary and gate execution share terminal status/log persistence through an
-  internal outcome recorder; gate verdicts remain in diagnostic execution.
+  Ordinary and gate execution use the same internal `OrationNarration`
+  operation; gate verdicts remain in diagnostic execution.
+- **OrationNarration** - synchronous internal execution on the coordinator's
+  lane, accepting typed ordinary-ID or gate-bundle requests. It reads/cleans
+  ordinary saved source or calls shared gate preparation, starts/resumes the
+  lifecycle, acquires the coordinator-owned synthesizer lazily, scopes the real
+  audio sink, and records chunks and the terminal outcome after closure. It
+  emits immutable prepared/chunk-committed facts after the required writes,
+  with no UI dispatch. Ordinary listen-now deduplication and all callback
+  fencing stay in coordination. This operation owns no executor, attachment,
+  run identity, model cache, or model close (ADR-009).
+  Its injected clock supplies lifecycle logs, Room progress, chunk metadata,
+  and outcomes as well as accumulated narration time. Production defaults to
+  wall time; tests supply a distinct clock. Creation/recovery/admission and
+  diagnostic measurement keep their existing clocks and owners.
 - **Managed synthesizer seam** - construction, generation, and close happen
   within the coordinator's execution lane. The shell supplies sherpa-onnx's
   Kotlin/JNI adapter with the existing four-thread ordinary profile; tests
@@ -152,7 +165,12 @@ audio; supersession, detach, and deletion fence terminal callbacks as well.
 
 Command admission is serialized separately from blocking execution. Pending
 commands are considered before dispatch, so Stop accepted before dispatch
-prevents model loading. Stop during a chunk retains its run's ownership through
+prevents source access and model loading. A vanished ordinary row does no work;
+missing source records one error without a model and pickup continues. Lazy
+ordinary acquisition closes any previous owner's model, then rechecks Stop
+and attachment validity before replacement construction. Gate coordination
+still constructs its model before preparation and checks early Stop there.
+Stop during a chunk retains its run's ownership through
 encoding, fsync, saved progress, sink closure, and terminal persistence. A
 repeated same-ID request coalesces with the current or stopping run rather than
 resetting its stop flag. Durable queue pickup orders by `queuedAt`, then ID.

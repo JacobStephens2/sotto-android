@@ -21,6 +21,7 @@ import java.nio.file.Files
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.coroutines.CoroutineContext
@@ -47,6 +48,7 @@ class NarrationCoordinatorTest {
         override fun pssKb() = 2048L
     }
     private var callbackDispatcher: CoroutineDispatcher = Dispatchers.Unconfined
+    private var clock: () -> Long = System::currentTimeMillis
     private val creation by lazy { OrationCreation(db, root) }
     private val coordinator by lazy { NarrationCoordinator(
         db, root,
@@ -79,6 +81,7 @@ class NarrationCoordinatorTest {
             }
         },
         callbackDispatcher = callbackDispatcher,
+        clock = { clock() },
         diagnosticEnvironment = environment,
         creation = creation,
     ) }
@@ -91,6 +94,69 @@ class NarrationCoordinatorTest {
         db.close()
         root.deleteRecursively()
         Unit
+    }
+
+    @Test
+    fun `ordinary durable progress and lifecycle use the injected clock`() = runBlocking {
+        val now = AtomicLong(100)
+        clock = now::get
+        insert("a", "Held first. " + "More. ".repeat(400))
+        val savedAudio = ConcurrentLinkedQueue<OrationEntity>()
+        val owner = coordinator.attach(NarrationCallbacks(onAudioReady = { savedAudio.add(it) }))
+        owner.narrate("a").await()
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        assertEquals(100L, db.orations().byId("a")!!.updatedAt)
+        val started = db.joblog().recent().single { it.orationId == "a" && it.event == "started" }
+        assertEquals(100L, started.at)
+        // The engine saves its initial checkpoint before entering the held chunk.
+        now.set(125)
+        release.countDown()
+        awaitStatus("a", "COMPLETE")
+        val row = db.orations().byId("a")!!
+        assertEquals(125L, row.updatedAt)
+        assertEquals(25L, row.narratedMs)
+        assertEquals(1, savedAudio.size)
+        assertEquals(1, savedAudio.single().chunksDone)
+        assertEquals(125L, savedAudio.single().updatedAt)
+        assertTrue(db.joblog().recent().filter { it.orationId == "a" && it.event != "started" }
+            .all { it.at == 125L })
+        assertEquals(row.audioBytes, File(root, "a/audio.aac").length())
+        assertEquals(1, db.joblog().count("a", "completed"))
+    }
+
+    @Test
+    fun `gate durable progress verdict and lifecycle use the injected clock`() = runBlocking {
+        val now = AtomicLong(100)
+        clock = now::get
+        val verdict = kotlinx.coroutines.CompletableDeferred<String>()
+        val statuses = ConcurrentLinkedQueue<String>()
+        val lab = coordinator.attachDiagnostics { event ->
+            if (event is DiagnosticEvent.Line && event.text.startsWith("GATE COMPLETE:")) verdict.complete(event.text)
+            if (event is DiagnosticEvent.Status && event.text.startsWith("gate: chunk")) {
+                val row = db.orations().byId("gate")!!
+                assertEquals(125L, row.updatedAt)
+                assertEquals(row.audioBytes, File(root, "gate/audio.aac").length())
+                assertEquals(row.chunksDone, db.joblog().count("gate", "chunk-done"))
+                statuses.add(event.text)
+            }
+        }
+        lab.request(DiagnosticRequest.Gate("Held gate. " + "More. ".repeat(400))).await()
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        assertEquals(100L, db.orations().byId("gate")!!.updatedAt)
+        assertEquals(100L, db.joblog().recent().single { it.orationId == "gate" && it.event == "started" }.at)
+        now.set(125)
+        release.countDown()
+        val terminal = withTimeout(5_000) { verdict.await() }
+        val row = db.orations().byId("gate")!!
+        assertEquals("COMPLETE", row.status)
+        assertEquals(125L, row.updatedAt)
+        assertEquals(25L, row.narratedMs)
+        assertEquals(row.chunksDone, statuses.size)
+        assertTrue(statuses.all { it.endsWith("thermal LIGHT · batt 80%") })
+        val logs = db.joblog().recent().filter { it.orationId == "gate" && it.event != "created" }
+        assertTrue(logs.filter { it.event != "started" }.all { it.at == 125L })
+        assertEquals("${row.chunksDone}ch ${row.audioBytes}B narratedMs=25", logs.single { it.event == "completed" }.detail)
+        assertTrue(terminal.contains("narrated 0.0 min this+prior runs, wall 0.0 min this run"))
     }
 
     @Test

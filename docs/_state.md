@@ -1,5 +1,26 @@
 # _state.md - sotto-android session handoff
 
+2026-11-14: Issue #22 consolidates durable ordinary and gate execution in
+internal `OrationNarration`. Typed ordinary-ID/gate-bundle requests hide source
+preparation, lifecycle writes, real sink closure, chunk metadata/logs, and
+outcome/failure recording. The standalone outcome recorder is removed.
+ADR-009's coordinator remains the sole Narration worker owner: admission,
+queue order, Stop, deletion, attachments, callback fencing, first-audio
+deduplication, and managed model lifetime stay there. Measurement arithmetic
+and gate presentation stay in diagnostic execution. This reversible internal
+change needs no new ADR, schema, permissions, text vectors, or hardware claims.
+
+One injected execution clock now reaches lifecycle logging, Room progress,
+chunk metadata, narration time deltas, and terminal outcomes for both callers.
+The ordinary clock regression failed on the baseline with
+`expected:<100> but was:<1794646514820>` and passes after consolidation:
+
+```sh
+JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew testLocalDebugUnitTest --tests '*NarrationCoordinatorTest.ordinary durable progress and lifecycle use the injected clock' -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+Validation and independent review results for this session follow when complete.
+
 2026-11-13: Issue #20 consolidates ordinary creation, gate preparation, and
 orphan cleanup in `OrationCreation`, shared manually by Confirm and the retained
 coordinator. A private monitor covers source preparation through the new-row
