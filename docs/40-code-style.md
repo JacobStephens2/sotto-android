@@ -19,10 +19,16 @@ app/src/main/kotlin/page/stephens/sotto/
     store/     Room entities/DAOs, file layout, job log
   shell/       Compose UI, NarrationService, MediaSession, manual process wiring
     synth/     managed sherpa-onnx resource + MediaCodec adapter
-src/sync/      sync flavor only: API client, account screens, sync engine
+    sync/      nullable process-wide SyncCoordinator + SyncCoordinatorProvider
+src/local/     local flavor wiring (`SyncFactory` returns null; no network)
+src/sync/      sync flavor only: `SyncFactory`, `RealSyncCoordinator`,
+               `RemoteServer`/`SottoApi`, `CredentialStore`/`EncryptedCredentialStore`
                (12-api-contract.md). Nothing outside src/sync may reference
-               network classes - enforced by the local flavor failing to
-               compile such references, plus the manifest guard.
+               network classes or Keystore sync credentials - enforced by the
+               local flavor failing to compile such references, plus the
+               manifest guard.
+src/testSync/  sync-flavor JVM suites (`SottoApiContractTest`,
+               `SyncCoordinatorTest`, `SyncUiTest`).
 ```
 
 - Dependency direction: `shell → engine`, `sync → engine + shell`. Never the
@@ -48,6 +54,16 @@ src/sync/      sync flavor only: API client, account screens, sync engine
   diagnostic requests on the same coordinator, never a model handle or arbitrary
   work closure. Diagnostic source/file/encoder/progress/log work and model
   reconfiguration/close stay in the same lane (ADR-009).
+- Retained process-wide opt-in sync ownership exposes nullable `SyncCoordinator`
+  and `SyncCoordinatorProvider` in `shell/sync/` (`null` in `local`;
+  `RealSyncCoordinator` plus `RemoteServer`/`SottoApi` and
+  `CredentialStore`/`EncryptedCredentialStore` under `src/sync/`). Activity
+  callers observe `SyncState` and call coordinator suspending methods without
+  global mutable flows, Activity-owned polling loops, duplicate-tap booleans,
+  or main-thread storage/network access. Sync transfers stage outside
+  `orations/` in `filesDir/sync-staging/`, fence auth against monotonic session
+  epochs, cancel on active `deletingIds` or matching-epoch `401`, and preserve
+  `updatedAt` during playhead and sync-bookkeeping writes.
 - A stop flag belongs to a run, not an oration ID. Pending commands precede
   dispatch; retries persist QUEUED before admission succeeds; duplicates never
   clear a stopping run's flag. Pickup sorts by persisted `queuedAt`, then ID.

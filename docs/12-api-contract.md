@@ -87,12 +87,32 @@ PUT with `If-None-Match: *`, 413 too large, 429 rate-limited.
 
 - Identity: `serverName` (the filename) is the sync key; the app stores it on
   its Oration row. Audio content is immutable per name - re-upload replaces.
-- **Pull**: list → entries unknown locally appear as SERVER_ONLY (metadata
-  only); user downloads on demand or "download all."
-- **Push**: local COMPLETE/STOPPED orations without `serverName` can be
-  uploaded; slug collision → app appends `-<6 chars of id>` (server's own
-  collision rule).
-- Renames: last-write-wins by `mtime`; titles are the only mutable field.
+- **Pull**: single-flight library reconciliation pulls server entries; unknown
+  remote entries insert as SERVER_ONLY (metadata only) without duplicating rows
+  under concurrent syncs; user downloads on demand, staged under
+  `filesDir/sync-staging/` outside `orations/`.
+- **Push**: local COMPLETE/STOPPED orations without `serverName` upload with
+  `If-None-Match: *` and retry on `409` conflict using `<slug>-<6 chars of id>`
+  as the expected target name; push rename and upload then run a best-effort
+  library refresh so `serverMtime` captures server time without failing the
+  completed push or upload.
+- **Renames**: last-write-wins using `e.mtime * 1000` (ms); pulled remote
+  renames update both `title` and `updatedAt` (`mtime * 1000`) and record a
+  local `"renamed"` activity log entry. Playhead persistence (`setPlayhead`),
+  `markSynced`, and `setDownloaded` never advance `updatedAt`.
+- **Client transport and polling**: dynamic URL path segments (`jobId`,
+  `name`) are RFC 3986 percent-encoded cleanly, rejecting blank or path
+  traversal values. Error streams are always drained and closed; HTTP `401`
+  maps to a typed session-expiry error that cancels the matching session epoch
+  and clears stale credentials without disturbing a newer login. File
+  downloads verify temp-to-final renames, unlink leftover `.tmp` files in
+  `finally`, treat optional `/text` `404` as absent source, apply configurable
+  timeouts, and close active sockets promptly on coroutine cancellation. Server
+  narration polling (`ServerNarrationState`) runs on the retained coordinator
+  scope (`POST /api/v1/narrate`, `GET /api/v1/jobs/<id>`), surfacing errors on
+  `"stopped"`, `"error"` (even when `error == null`), `"done"` with null `name`,
+  unrecognized statuses, `404`/`401`, or bounded consecutive transient poll
+  failures.
 - Deletes do **not** propagate automatically in v1 - deleting locally keeps the
   server copy and vice versa. Explicit "delete on server too" affordance
   instead. Simplest honest semantics; revisit only with real pain.

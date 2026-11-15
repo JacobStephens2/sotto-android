@@ -83,6 +83,42 @@ class QueuePersistenceTest {
         assertEquals("retry-1", db.orations().nextQueued()?.id)
     }
 
+    @Test
+    fun `playhead and sync bookkeeping preserve updatedAt and return affected row counts while rename updates it`() {
+        val original = row("sync-row", createdAt = 100).copy(
+            status = "STOPPED",
+            updatedAt = 500L,
+            downloaded = false,
+            serverName = null,
+            serverMtime = null,
+        )
+        db.orations().insert(original)
+
+        db.orations().setPlayhead("sync-row", 12_345L)
+        assertEquals(12_345L, db.orations().byId("sync-row")!!.playheadMs)
+        assertEquals(500L, db.orations().byId("sync-row")!!.updatedAt)
+
+        assertEquals(1, db.orations().markSynced("sync-row", "essay.aac", 900L))
+        assertEquals(0, db.orations().markSynced("missing-row", "essay.aac", 900L))
+        val synced = db.orations().byId("sync-row")!!
+        assertEquals("essay.aac", synced.serverName)
+        assertEquals(900L, synced.serverMtime)
+        assertEquals(500L, synced.updatedAt)
+
+        assertEquals(1, db.orations().setDownloaded("sync-row", 4096L))
+        assertEquals(0, db.orations().setDownloaded("missing-row", 4096L))
+        val downloaded = db.orations().byId("sync-row")!!
+        assertEquals(true, downloaded.downloaded)
+        assertEquals(4096L, downloaded.audioBytes)
+        assertEquals("COMPLETE", downloaded.status)
+        assertEquals(500L, downloaded.updatedAt)
+
+        db.orations().rename("sync-row", "Renamed title", 777L)
+        val renamed = db.orations().byId("sync-row")!!
+        assertEquals("Renamed title", renamed.title)
+        assertEquals(777L, renamed.updatedAt)
+    }
+
     private fun open(): SottoDatabase =
         Room.databaseBuilder(context, SottoDatabase::class.java, name)
             .allowMainThreadQueries()

@@ -26,10 +26,11 @@ share sheet / file open / paste
 └─────────────────────────────────────────────────────────────────────┘
         ▲
         └── `local` flavor: NO network - no INTERNET permission exists (ADR-004).
-            `sync` flavor adds, in src/sync only (ADR-007):
-            SyncEngine ──▶ sotto server /api/v1 (12-api-contract.md)
-            (library mirror: download server entries, upload local ones;
-             narration never touches it)
+            `sync` flavor wires SyncFactory in src/sync only (ADR-007):
+            SyncCoordinator (shell/sync) ──▶ RemoteServer / SottoApi (/api/v1)
+            ├── single-flight library sync + LWW rename · CredentialStore
+            ├── external sync-staging/ + Room commits · deletingIds abort
+            └── retained ServerNarrationState poll (Confirm · Library · Account)
 ```
 
 ## Components
@@ -124,14 +125,26 @@ share sheet / file open / paste
   to Library. If the UI disappears before delivery, the committed QUEUED row
   remains available for ordinary pickup by an attached owner.
 
-### Sync (flavor `sync` only, package `src/sync/`)
+### Sync (`shell/sync/` interface, `src/sync/` implementation)
 
-- **SyncEngine** - implements the client side of 12-api-contract.md: token
-  auth (stored in Keystore-backed settings), library list/download/upload,
-  rename LWW. Peripheral by construction: it mutates the same Room rows and
-  files the engine owns, through the same DAOs, and nothing in `engine/` or
-  `shell/` references it. The `local` flavor compiles without this source set
-  existing.
+- **SyncCoordinator** - `SyncCoordinator` and `SyncCoordinatorProvider` live in
+  `main/kotlin/.../shell/sync/`, returning `null` from the `local` flavor's
+  `SyncFactory` (zero network code, encrypted credentials, or network
+  permissions) and a manually wired, process-retained `RealSyncCoordinator`
+  singleton in `sync` (with `setForTest` / `shutdownForTest` hooks matching
+  `NarrationCoordinatorProvider`).
+- **RealSyncCoordinator, RemoteServer, CredentialStore** - confined to
+  `src/sync/` (`SottoApi` over stdlib `HttpURLConnection`,
+  `EncryptedCredentialStore` over Android Keystore). `engine/` never imports
+  Compose, shell, or network; `local` compiles without `src/sync/`.
+- **Ownership and isolation** - single-flight library reconciliation,
+  monotonic session epochs (cancelling child scope and active sockets on
+  off-main `disconnect()` or matching-epoch `401`), external staging in
+  `filesDir/sync-staging/` outside `orations/` (swept at startup so
+  `OrationCreation.sweepOrphans()` never disturbs live transfers), active
+  `deletingIds` cancellation plus 0-row commit rollback, ID-based download and
+  upload deduplication, and retained `ServerNarrationState` polling live behind
+  `SyncCoordinator` across Activity recreation.
 
 ## Audio format decision (resolved by SPIKE-001)
 

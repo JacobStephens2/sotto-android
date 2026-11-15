@@ -12,6 +12,9 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
@@ -19,6 +22,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import page.stephens.sotto.BuildConfig
+import page.stephens.sotto.shell.service.NarrationCoordinatorProvider
+import page.stephens.sotto.shell.sync.SyncCoordinatorProvider
 
 @RunWith(RobolectricTestRunner::class)
 class AboutScreenTest {
@@ -34,6 +39,14 @@ class AboutScreenTest {
     fun openAbout() {
         compose.onNodeWithText("About").performClick()
         compose.waitForIdle()
+    }
+
+    @After
+    fun cleanUp() {
+        runBlocking(Dispatchers.IO) {
+            SyncCoordinatorProvider.shutdownForTest()?.await()
+            NarrationCoordinatorProvider.shutdownForTest()?.await()
+        }
     }
 
     private fun shows(phrase: String) = compose.onNodeWithText(phrase, substring = true).assertExists()
