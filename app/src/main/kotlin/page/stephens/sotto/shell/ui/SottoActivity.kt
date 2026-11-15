@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -54,7 +55,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -68,6 +68,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
@@ -152,7 +153,7 @@ class SottoActivity : ComponentActivity() {
         val sharedIn = sharedText(intent)
         setContent {
             SottoTheme {
-                val syncState = sync?.state?.collectAsState(context = Dispatchers.Main.immediate)?.value
+                val syncState = sync?.state?.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)?.value
                 var screen by rememberSaveable(stateSaver = ScreenSaver) {
                     mutableStateOf<Screen>(if (sharedIn != null) Screen.Confirm(sharedIn) else Screen.Library)
                 }
@@ -250,13 +251,7 @@ class SottoActivity : ComponentActivity() {
         var onServer by rememberSaveable(text) { mutableStateOf(false) }
         var activeServerRequestId by rememberSaveable(text) { mutableStateOf<String?>(null) }
         val activeServerState = syncState?.serverNarration?.takeIf { state ->
-            when (state) {
-                ServerNarrationState.Idle -> false
-                is ServerNarrationState.Submitting -> state.requestId == activeServerRequestId
-                is ServerNarrationState.Polling -> state.requestId == activeServerRequestId
-                is ServerNarrationState.Completed -> state.requestId == activeServerRequestId
-                is ServerNarrationState.Failed -> state.requestId == activeServerRequestId
-            }
+            activeServerRequestId != null && state.requestIdOrNull == activeServerRequestId
         }
         LaunchedEffect(activeServerState) {
             if (activeServerState is ServerNarrationState.Completed) {
@@ -299,6 +294,7 @@ class SottoActivity : ComponentActivity() {
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 48.dp)
                             .toggleable(
                                 value = onServer,
                                 enabled = !busy,
@@ -443,7 +439,7 @@ class SottoActivity : ComponentActivity() {
     private fun LibraryScreen(syncState: SyncState?, onOpen: (OrationEntity) -> Unit, onAbout: () -> Unit,
                               onCompose: () -> Unit, onAccount: (() -> Unit)?,
                               onLibrary: (() -> Unit)?) {
-        val items by db.orations().allFlow().collectAsState(initial = emptyList(), context = Dispatchers.Main.immediate)
+        val items by db.orations().allFlow().collectAsStateWithLifecycle(initialValue = emptyList(), context = Dispatchers.Main.immediate)
         val downloads = syncState?.activeDownloads ?: emptyMap()
         var sheetFor by remember { mutableStateOf<OrationEntity?>(null) }
         Scaffold(topBar = {
@@ -640,7 +636,7 @@ class SottoActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun PlayerScreen(id: String, onBack: () -> Unit) {
-        val row by db.orations().byIdFlow(id).collectAsState(initial = null, context = Dispatchers.Main.immediate)
+        val row by db.orations().byIdFlow(id).collectAsStateWithLifecycle(initialValue = null, context = Dispatchers.Main.immediate)
         val controller = rememberController()
         var positionMs by remember { mutableStateOf(0L) }
         var durationMs by remember { mutableStateOf(0L) }

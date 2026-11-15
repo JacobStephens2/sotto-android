@@ -37,6 +37,10 @@ internal class SottoApi(
     private val connectTimeoutMs: Int = 15_000,
     private val readTimeoutMs: Int = 120_000,
     private val userAgent: String = "sotto-android/${BuildConfig.VERSION_NAME} (sync)",
+    private val shouldUseRawDownload: (URL) -> Boolean = { url ->
+        (url.openConnection() as HttpURLConnection).javaClass.name.startsWith("sun.net.www.")
+    },
+    private val sslSocketFactory: () -> SSLSocketFactory = { SSLSocketFactory.getDefault() as SSLSocketFactory },
 ) : RemoteServer {
 
     override suspend fun requestToken(
@@ -219,11 +223,8 @@ internal class SottoApi(
                             if (handle.cancelled.get()) return@execute
                             val result = block(handle)
                             handle.connRef.set(null)
-                            handle.socketRef.set(null)
                             if (!handle.cancelled.get()) cont.resume(result)
                         } catch (t: Throwable) {
-                            handle.connRef.set(null)
-                            handle.socketRef.set(null)
                             if (!handle.cancelled.get()) cont.resumeWithException(t)
                         } finally {
                             runCatching { handle.socketRef.getAndSet(null)?.close() }
@@ -275,10 +276,7 @@ internal class SottoApi(
         // OpenJDK's HttpURLConnection rejects PATCH; Android's OkHttp-backed implementation accepts it.
         if (method != "PATCH") throw e
         executeRawSocket(serverUrl, token, method, path, json) { resp ->
-            if (resp.code !in 200..299) {
-                val detail = runCatching { resp.body.use { it.readBytes().decodeToString() } }.getOrNull() ?: ""
-                throwParsedApiError(resp.code, detail)
-            }
+            ensureSuccess(resp)
             resp.body.use { it.readBytes().decodeToString() }
         }
     }
@@ -291,15 +289,11 @@ internal class SottoApi(
         onBytes: ((Long) -> Unit)? = null,
     ) {
         val url = buildUrl(serverUrl, path)
-        val probeClass = (url.openConnection() as HttpURLConnection).javaClass.name
-        if (probeClass.startsWith("sun.net.www.")) {
+        if (shouldUseRawDownload(url)) {
             // OpenJDK's sun.net.www.* HttpURLConnection.disconnect() acquires Chunked/MeteredStream's
             // readLock before closing the socket, stalling cancellation until read timeout.
             executeRawSocket(serverUrl, token, "GET", path, json = null) { resp ->
-                if (resp.code !in 200..299) {
-                    val detail = runCatching { resp.body.use { it.readBytes().decodeToString() } }.getOrNull() ?: ""
-                    throwParsedApiError(resp.code, detail)
-                }
+                ensureSuccess(resp)
                 writeStreamToTempAndRename(
                     ins = resp.body,
                     expectedLength = resp.contentLengthLong,
@@ -386,69 +380,91 @@ internal class SottoApi(
         val url = buildUrl(serverUrl, path)
         val port = if (url.port != -1) url.port else url.defaultPort
         val raw = Socket()
-        raw.soTimeout = readTimeoutMs
-        handle.socketRef.set(raw)
-        if (handle.cancelled.get()) throw CancellationException("Transfer cancelled")
-        raw.connect(InetSocketAddress(url.host, port), connectTimeoutMs)
-        val sock: Socket = if (url.protocol == "https") {
-            val ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(raw, url.host, port, true) as SSLSocket
-            ssl.useClientMode = true
-            handle.socketRef.set(ssl)
+        var activeSock: Socket? = null
+        try {
+            raw.soTimeout = readTimeoutMs
+            handle.socketRef.set(raw)
             if (handle.cancelled.get()) throw CancellationException("Transfer cancelled")
-            ssl.startHandshake()
-            ssl
-        } else {
-            raw
-        }
-        val out = sock.getOutputStream()
-        val hostHeader = if (url.port != -1) "${url.host}:${url.port}" else url.host
-        val reqTarget = url.file.ifEmpty { "/" }
-        val req = StringBuilder()
-            .append("$method $reqTarget HTTP/1.1\r\n")
-            .append("Host: $hostHeader\r\n")
-            .append("User-Agent: $userAgent\r\n")
-            .append("Connection: close\r\n")
-        if (token != null) req.append("Authorization: Bearer $token\r\n")
-        val bodyBytes = json?.toByteArray(Charsets.UTF_8)
-        if (bodyBytes != null) {
-            req.append("Content-Type: application/json\r\n")
-            req.append("Content-Length: ${bodyBytes.size}\r\n")
-        }
-        req.append("\r\n")
-        out.write(req.toString().toByteArray(Charsets.US_ASCII))
-        if (bodyBytes != null) out.write(bodyBytes)
-        out.flush()
+            raw.connect(InetSocketAddress(url.host, port), connectTimeoutMs)
+            val sock: Socket = if (url.protocol == "https") {
+                val ssl = sslSocketFactory()
+                    .createSocket(raw, url.host, port, true) as SSLSocket
+                ssl.useClientMode = true
+                ssl.sslParameters = ssl.sslParameters.apply {
+                    endpointIdentificationAlgorithm = "HTTPS"
+                }
+                activeSock = ssl
+                handle.socketRef.set(ssl)
+                if (handle.cancelled.get()) throw CancellationException("Transfer cancelled")
+                ssl.startHandshake()
+                ssl
+            } else {
+                activeSock = raw
+                raw
+            }
+            val out = sock.getOutputStream()
+            val hostHeader = if (url.port != -1) "${url.host}:${url.port}" else url.host
+            val reqTarget = url.file.ifEmpty { "/" }
+            val req = StringBuilder()
+                .append("$method $reqTarget HTTP/1.1\r\n")
+                .append("Host: $hostHeader\r\n")
+                .append("User-Agent: $userAgent\r\n")
+                .append("Connection: close\r\n")
+            if (token != null) req.append("Authorization: Bearer $token\r\n")
+            val bodyBytes = json?.toByteArray(Charsets.UTF_8)
+            if (bodyBytes != null) {
+                req.append("Content-Type: application/json\r\n")
+                req.append("Content-Length: ${bodyBytes.size}\r\n")
+            }
+            req.append("\r\n")
+            out.write(req.toString().toByteArray(Charsets.US_ASCII))
+            if (bodyBytes != null) out.write(bodyBytes)
+            out.flush()
 
-        val input = BufferedInputStream(sock.getInputStream())
-        var code: Int
-        val headers = linkedMapOf<String, String>()
-        while (true) {
-            val statusLine = readLineAscii(input) ?: throw EOFException("Unexpected end of HTTP response")
-            val codeToken = statusLine.split(' ').getOrNull(1)?.toIntOrNull()
-                ?: throw IOException("Malformed HTTP status line: $statusLine")
-            headers.clear()
+            val input = BufferedInputStream(sock.getInputStream())
+            var code: Int
+            val headers = linkedMapOf<String, String>()
             while (true) {
-                val line = readLineAscii(input) ?: break
-                if (line.isEmpty()) break
-                val colon = line.indexOf(':')
-                if (colon > 0) {
-                    headers[line.substring(0, colon).trim().lowercase()] = line.substring(colon + 1).trim()
+                val statusLine = readLineAscii(input) ?: throw EOFException("Unexpected end of HTTP response")
+                val codeToken = statusLine.split(' ').getOrNull(1)?.toIntOrNull()
+                    ?: throw IOException("Malformed HTTP status line: $statusLine")
+                headers.clear()
+                while (true) {
+                    val line = readLineAscii(input) ?: break
+                    if (line.isEmpty()) break
+                    val colon = line.indexOf(':')
+                    if (colon > 0) {
+                        headers[line.substring(0, colon).trim().lowercase()] = line.substring(colon + 1).trim()
+                    }
+                }
+                if (codeToken != 100) {
+                    code = codeToken
+                    break
                 }
             }
-            if (codeToken != 100) {
-                code = codeToken
-                break
+            val transferEncoding = headers["transfer-encoding"] ?: ""
+            val contentLength = headers["content-length"]?.toLongOrNull() ?: -1L
+            val contentEncoding = headers["content-encoding"]
+            val bodyStream: InputStream = when {
+                transferEncoding.contains("chunked", ignoreCase = true) -> ChunkedInputStream(input)
+                contentLength >= 0 -> BoundedInputStream(input, contentLength)
+                else -> input
             }
+            bodyStream.use { stream ->
+                block(RawResponse(code, contentLength, contentEncoding, stream) { handle.cancelled.get() })
+            }
+        } finally {
+            handle.socketRef.set(null)
+            runCatching { activeSock?.close() }
+            runCatching { raw.close() }
         }
-        val transferEncoding = headers["transfer-encoding"] ?: ""
-        val contentLength = headers["content-length"]?.toLongOrNull() ?: -1L
-        val contentEncoding = headers["content-encoding"]
-        val bodyStream: InputStream = when {
-            transferEncoding.contains("chunked", ignoreCase = true) -> ChunkedInputStream(input)
-            contentLength >= 0 -> BoundedInputStream(input, contentLength)
-            else -> input
+    }
+
+    private fun ensureSuccess(resp: RawResponse) {
+        if (resp.code !in 200..299) {
+            val detail = runCatching { resp.body.use { it.readBytes().decodeToString() } }.getOrNull() ?: ""
+            throwParsedApiError(resp.code, detail)
         }
-        block(RawResponse(code, contentLength, contentEncoding, bodyStream) { handle.cancelled.get() })
     }
 
     private class BoundedInputStream(private val source: InputStream, private var remaining: Long) : InputStream() {
@@ -465,6 +481,10 @@ internal class SottoApi(
             val n = source.read(b, off, toRead)
             if (n > 0) remaining -= n
             return n
+        }
+
+        override fun close() {
+            source.close()
         }
     }
 
@@ -498,6 +518,10 @@ internal class SottoApi(
                 readLineAscii(source) ?: throw EOFException("Missing chunk terminator")
             }
             return n
+        }
+
+        override fun close() {
+            source.close()
         }
     }
 

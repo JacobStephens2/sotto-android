@@ -21,11 +21,24 @@ data class ServerJob(val status: String, val pct: Int, val name: String?, val er
 
 /** Server-side OpenAI narration lifecycle owned by [SyncCoordinator] across Activity recreation. */
 sealed interface ServerNarrationState {
+    val requestIdOrNull: String? get() = null
+
     data object Idle : ServerNarrationState
-    data class Submitting(val requestId: String, val title: String) : ServerNarrationState
-    data class Polling(val requestId: String, val jobId: String, val title: String, val pct: Int) : ServerNarrationState
-    data class Completed(val requestId: String, val name: String, val syncError: String? = null) : ServerNarrationState
-    data class Failed(val requestId: String, val message: String) : ServerNarrationState
+    data class Submitting(val requestId: String, val title: String) : ServerNarrationState {
+        override val requestIdOrNull: String get() = requestId
+    }
+
+    data class Polling(val requestId: String, val jobId: String, val title: String, val pct: Int) : ServerNarrationState {
+        override val requestIdOrNull: String get() = requestId
+    }
+
+    data class Completed(val requestId: String, val name: String, val syncError: String? = null) : ServerNarrationState {
+        override val requestIdOrNull: String get() = requestId
+    }
+
+    data class Failed(val requestId: String, val message: String) : ServerNarrationState {
+        override val requestIdOrNull: String get() = requestId
+    }
 }
 
 /** Reactive snapshot of opt-in sync session, reconciliation, transfers, and server narration. */

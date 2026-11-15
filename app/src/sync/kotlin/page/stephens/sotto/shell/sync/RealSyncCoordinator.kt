@@ -94,6 +94,7 @@ internal class RealSyncCoordinator(
     private var currentSession: Session? = null
     private var activeConnectJob: Job? = null
     private var activeSync: InFlightSync? = null
+    private var activeNarrationJob: Job? = null
     private val activeDownloads = mutableMapOf<String, ActiveDownload>()
     private val downloadPct = mutableMapOf<String, Int>()
     private val activeUploads = mutableMapOf<String, ActiveUpload>()
@@ -293,10 +294,6 @@ internal class RealSyncCoordinator(
 
     override suspend fun upload(oration: OrationEntity): Result<String> {
         initDone.await()
-        val audio = File(filesDir, "orations/${oration.id}/audio.aac")
-        if (!audio.exists()) {
-            return Result.failure(IllegalArgumentException("no audio to upload"))
-        }
         val slug = slugifyTitle(oration.title)
         val primaryName = "$slug.aac"
         val altName = "$slug-${oration.id.take(6)}.aac"
@@ -318,7 +315,7 @@ internal class RealSyncCoordinator(
                 publishTransferStateLocked()
 
                 session.scope.launch(entryJob) {
-                    val res = runUpload(session, oration, audio, primaryName, altName)
+                    val res = runUpload(session, oration, primaryName, altName)
                     created.complete(res)
                 }.invokeOnCompletion { err ->
                     entryJob.complete()
@@ -369,20 +366,40 @@ internal class RealSyncCoordinator(
 
     override fun narrateOnServer(text: String, voice: String, title: String): String {
         val requestId = idGenerator()
-        val session = synchronized(coordinatorLock) {
-            val active = _state.value.serverNarration
-            if (active is ServerNarrationState.Submitting) return active.requestId
-            if (active is ServerNarrationState.Polling) return active.requestId
+        val toLaunch: Pair<Session, Job?>? = synchronized(coordinatorLock) {
+            val previousJob = activeNarrationJob
             val current = currentSession
             if (current == null) {
+                activeNarrationJob = null
                 _state.update { it.copy(serverNarration = ServerNarrationState.Failed(requestId, "Not connected")) }
-                return requestId
+                null
+            } else {
+                activeNarrationJob = null
+                _state.update { it.copy(serverNarration = ServerNarrationState.Submitting(requestId, title)) }
+                current to previousJob
             }
-            _state.update { it.copy(serverNarration = ServerNarrationState.Submitting(requestId, title)) }
-            current
         }
-        session.scope.launch {
-            runServerNarration(session, requestId, text, voice, title)
+        if (toLaunch != null) {
+            val (session, previousJob) = toLaunch
+            previousJob?.cancel(CancellationException("Replaced by newer server narration request"))
+            val launched = session.scope.launch {
+                runServerNarration(session, requestId, text, voice, title)
+            }
+            synchronized(coordinatorLock) {
+                if (currentSession?.epoch == session.epoch &&
+                    _state.value.serverNarration.requestIdOrNull == requestId &&
+                    launched.isActive
+                ) {
+                    activeNarrationJob = launched
+                }
+            }
+            launched.invokeOnCompletion {
+                synchronized(coordinatorLock) {
+                    if (activeNarrationJob === launched) {
+                        activeNarrationJob = null
+                    }
+                }
+            }
         }
         return requestId
     }
@@ -390,15 +407,9 @@ internal class RealSyncCoordinator(
     override fun acknowledgeServerNarration(requestId: String) {
         synchronized(coordinatorLock) {
             val current = _state.value.serverNarration
-            val matches = when (current) {
-                is ServerNarrationState.Completed -> current.requestId == requestId
-                is ServerNarrationState.Failed -> current.requestId == requestId
-                ServerNarrationState.Idle,
-                is ServerNarrationState.Submitting,
-                is ServerNarrationState.Polling,
-                -> false
-            }
-            if (matches) {
+            if ((current is ServerNarrationState.Completed || current is ServerNarrationState.Failed) &&
+                current.requestIdOrNull == requestId
+            ) {
                 _state.update { it.copy(serverNarration = ServerNarrationState.Idle) }
             }
         }
@@ -414,7 +425,8 @@ internal class RealSyncCoordinator(
     // --- Execution paths --------------------------------------------------
 
     private suspend fun runReconciliation(session: Session): Result<String> {
-        _state.update { it.copy(syncingLibrary = true) }
+        checkSessionActive(session)
+        updateStateIfSessionActive(session) { it.copy(syncingLibrary = true) }
         try {
             val entries = api.library(session.serverUrl, session.token)
             val dao = db.orations()
@@ -488,7 +500,7 @@ internal class RealSyncCoordinator(
             )
             val summary =
                 "Synced: $newCount new from server, $renamedLocal renamed here, $renamedRemote renamed there"
-            _state.update { it.copy(syncingLibrary = false, accountSyncStatus = summary) }
+            updateStateIfSessionActive(session) { it.copy(syncingLibrary = false, accountSyncStatus = summary) }
             return Result.success(summary)
         } catch (c: CancellationException) {
             throw c
@@ -498,7 +510,7 @@ internal class RealSyncCoordinator(
             }
             val msg = "Sync failed: ${t.message}"
             if (t !is UnauthorizedApiException) {
-                _state.update { it.copy(syncingLibrary = false, accountSyncStatus = msg) }
+                updateStateIfSessionActive(session) { it.copy(syncingLibrary = false, accountSyncStatus = msg) }
                 runCatching { JobLog(db.joblog(), clock).log("error", "sync", detail = t.message ?: t.toString()) }
             }
             return Result.failure(t)
@@ -507,8 +519,10 @@ internal class RealSyncCoordinator(
                 if (activeSync?.epoch == session.epoch) {
                     activeSync = null
                 }
+                if (currentSession?.epoch == session.epoch) {
+                    _state.update { it.copy(syncingLibrary = false) }
+                }
             }
-            _state.update { it.copy(syncingLibrary = false) }
         }
     }
 
@@ -619,10 +633,13 @@ internal class RealSyncCoordinator(
     private suspend fun runUpload(
         session: Session,
         oration: OrationEntity,
-        audio: File,
         primaryName: String,
         altName: String,
     ): Result<String> {
+        val audio = File(filesDir, "orations/${oration.id}/audio.aac")
+        if (!audio.exists()) {
+            return Result.failure(IllegalArgumentException("no audio to upload"))
+        }
         return try {
             val text = File(filesDir, "orations/${oration.id}/source.md").takeIf { it.exists() }
             val meta = JSONObject()
@@ -683,16 +700,17 @@ internal class RealSyncCoordinator(
         voice: String,
         title: String,
     ) {
-        fun setNarrationStateIfActive(next: ServerNarrationState) {
+        fun updateNarration(
+            allowAfterExpire: Boolean = false,
+            transform: (ServerNarrationState) -> ServerNarrationState?,
+        ) {
             synchronized(coordinatorLock) {
-                if (currentSession?.epoch != session.epoch && next !is ServerNarrationState.Failed) return
+                if (!allowAfterExpire && currentSession?.epoch != session.epoch) return
                 val cur = _state.value.serverNarration
-                val curId = when (cur) {
-                    is ServerNarrationState.Submitting -> cur.requestId
-                    is ServerNarrationState.Polling -> cur.requestId
-                    else -> null
-                }
-                if (curId == requestId) {
+                val matches = (cur is ServerNarrationState.Submitting || cur is ServerNarrationState.Polling) &&
+                    cur.requestIdOrNull == requestId
+                if (matches) {
+                    val next = transform(cur) ?: return
                     _state.update { it.copy(serverNarration = next) }
                 }
             }
@@ -702,13 +720,13 @@ internal class RealSyncCoordinator(
             if (logError) {
                 runCatching { JobLog(db.joblog(), clock).log("error", title, detail = "server-narrate: $message") }
             }
-            setNarrationStateIfActive(ServerNarrationState.Failed(requestId, message))
+            updateNarration(allowAfterExpire = true) { ServerNarrationState.Failed(requestId, message) }
         }
 
         try {
             val jobId = api.narrate(session.serverUrl, session.token, text, voice, title)
             runCatching { JobLog(db.joblog(), clock).log("server-narrate", title, detail = "voice=$voice job=$jobId") }
-            setNarrationStateIfActive(ServerNarrationState.Polling(requestId, jobId, title, pct = 0))
+            updateNarration { ServerNarrationState.Polling(requestId, jobId, title, pct = 0) }
 
             var consecutiveFailures = 0
             while (coroutineContext.isActive) {
@@ -723,7 +741,7 @@ internal class RealSyncCoordinator(
                         return
                     }
                     if (err is ApiException && err.code == 404) {
-                        failLoudly("Server job no longer exists (404)")
+                        failLoudly("Server narration no longer exists (404)")
                         return
                     }
                     consecutiveFailures++
@@ -751,41 +769,32 @@ internal class RealSyncCoordinator(
                             return
                         }
                         val syncRes = syncNow()
-                        setNarrationStateIfActive(
+                        updateNarration {
                             ServerNarrationState.Completed(
                                 requestId = requestId,
                                 name = name,
                                 syncError = syncRes.exceptionOrNull()?.let { it.message ?: it.toString() },
-                            ),
-                        )
+                            )
+                        }
                         return
                     }
                     job.status == "queued" || job.status == "running" -> {
-                        synchronized(coordinatorLock) {
-                            val cur = _state.value.serverNarration
-                            if (currentSession?.epoch == session.epoch &&
-                                cur is ServerNarrationState.Polling &&
-                                cur.requestId == requestId
-                            ) {
-                                _state.update {
-                                    it.copy(serverNarration = cur.copy(pct = job.pct.coerceIn(0, 100)))
-                                }
-                            }
+                        updateNarration { cur ->
+                            (cur as? ServerNarrationState.Polling)?.copy(pct = job.pct.coerceIn(0, 100))
                         }
                     }
                     else -> {
-                        failLoudly("Unexpected server job status: ${job.status}")
+                        failLoudly("Unexpected server narration status: ${job.status}")
                         return
                     }
                 }
             }
         } catch (c: CancellationException) {
-            synchronized(coordinatorLock) {
-                val cur = _state.value.serverNarration
-                val activeSameReq = (cur is ServerNarrationState.Submitting && cur.requestId == requestId) ||
-                    (cur is ServerNarrationState.Polling && cur.requestId == requestId)
-                if (activeSameReq && _state.value.authStatus == SESSION_EXPIRED_MESSAGE) {
-                    _state.update { it.copy(serverNarration = ServerNarrationState.Failed(requestId, SESSION_EXPIRED_MESSAGE)) }
+            updateNarration(allowAfterExpire = true) {
+                if (_state.value.authStatus == SESSION_EXPIRED_MESSAGE) {
+                    ServerNarrationState.Failed(requestId, SESSION_EXPIRED_MESSAGE)
+                } else {
+                    null
                 }
             }
             throw c
@@ -799,6 +808,17 @@ internal class RealSyncCoordinator(
 
     // --- Session & staging housekeeping ----------------------------------
 
+    private inline fun updateStateIfSessionActive(
+        session: Session,
+        crossinline transform: (SyncState) -> SyncState,
+    ) {
+        synchronized(coordinatorLock) {
+            if (currentSession?.epoch == session.epoch) {
+                _state.update { transform(it) }
+            }
+        }
+    }
+
     private fun installSessionLocked(serverUrl: String, email: String, token: String): Session? =
         synchronized(coordinatorLock) {
             val old = currentSession
@@ -807,6 +827,7 @@ internal class RealSyncCoordinator(
             val sScope = CoroutineScope(sJob + ioDispatcher)
             currentSession = Session(epoch, serverUrl, email, token, sJob, sScope)
             activeSync = null
+            activeNarrationJob = null
             activeDownloads.clear()
             downloadPct.clear()
             activeUploads.clear()
@@ -821,6 +842,7 @@ internal class RealSyncCoordinator(
         val old = currentSession
         currentSession = null
         activeSync = null
+        activeNarrationJob = null
         activeDownloads.clear()
         downloadPct.clear()
         activeUploads.clear()

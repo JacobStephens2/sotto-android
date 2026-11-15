@@ -12,6 +12,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CompletableDeferred
@@ -283,9 +284,36 @@ class SyncUiTest {
         }
     }
 
+    @Test
+    fun `sync state collection stops when activity is stopped`() {
+        ActivityScenario.launch(SottoActivity::class.java).use { scenario ->
+            compose.waitForIdle()
+            assertEquals(1, fake.subscriptionCount())
+            scenario.moveToState(androidx.lifecycle.Lifecycle.State.CREATED)
+            assertEquals(0, fake.subscriptionCount())
+        }
+    }
+
+    @Test
+    fun `server narration switch row meets 48dp touch target`() {
+        fake.setConnected("reader@example.com", ServerAccount("reader@example.com", true, listOf("onyx"), "onyx"))
+        ActivityScenario.launch<SottoActivity>(
+            Intent(app, SottoActivity::class.java).apply {
+                action = Intent.ACTION_SEND
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, "Hello world.")
+            },
+        ).use {
+            val bounds = compose.onNodeWithText("Narrate on the server (OpenAI)").fetchSemanticsNode().boundsInRoot
+            val heightDp = with(compose.density) { bounds.height.toDp() }
+            assertTrue("Switch row height $heightDp < 48.dp", heightDp >= 48.dp)
+        }
+    }
+
     private class FakeSyncCoordinator : SyncCoordinator {
         private val _state = MutableStateFlow(SyncState(initialized = true))
         override val state: StateFlow<SyncState> = _state.asStateFlow()
+        fun subscriptionCount(): Int = _state.subscriptionCount.value
 
         var nextSyncResult: suspend () -> Result<String> = { Result.success("Synced: 0 new from server, 0 renamed here, 0 renamed there") }
         var nextDownload: suspend (OrationEntity) -> Result<Unit> = { Result.success(Unit) }

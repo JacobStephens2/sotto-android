@@ -379,6 +379,134 @@ class SottoApiContractTest {
         assertTrue(serverSawIoError.await(2, TimeUnit.SECONDS))
     }
 
+    @Test
+    fun `executeRawSocket closes client socket after response completes`() = runBlocking {
+        val clientClosed = CountDownLatch(1)
+        handler.set { ex ->
+            replyJson(ex, 200, "{}")
+            ex.socket.soTimeout = 1_500
+            if (ex.socket.getInputStream().read() == -1) clientClosed.countDown()
+        }
+        SottoApi().rename(baseUrl, "tok", "essay.aac", "Renamed")
+        assertTrue("Client socket stayed open after rename returned", clientClosed.await(1, TimeUnit.SECONDS))
+    }
+
+    @Test
+    fun `executeRawSocket enforces TLS hostname verification`() = runBlocking {
+        fun genKeyStore(san: String): Pair<File, java.security.KeyStore> {
+            val ksFile = File(tempRoot, "$san.p12")
+            val proc = ProcessBuilder(
+                "keytool", "-genkeypair", "-alias", "srv", "-keyalg", "RSA", "-keysize", "2048",
+                "-dname", "CN=$san", "-ext", "SAN=dns:$san", "-storetype", "PKCS12",
+                "-keystore", ksFile.absolutePath, "-storepass", "changeit", "-keypass", "changeit", "-validity", "1",
+            ).redirectErrorStream(true).start()
+            check(proc.waitFor() == 0) { proc.inputStream.readBytes().decodeToString() }
+            val ks = java.security.KeyStore.getInstance("PKCS12").apply {
+                ksFile.inputStream().use { load(it, "changeit".toCharArray()) }
+            }
+            return ksFile to ks
+        }
+        val serverErrors = java.util.concurrent.CopyOnWriteArrayList<Throwable>()
+        fun startTlsServer(ks: java.security.KeyStore): Pair<javax.net.ssl.SSLServerSocket, Thread> {
+            val kmf = javax.net.ssl.KeyManagerFactory.getInstance("SunX509", "SunJSSE")
+            kmf.init(ks, "changeit".toCharArray())
+            val ctx = javax.net.ssl.SSLContext.getInstance("TLS", "SunJSSE").apply { init(kmf.keyManagers, null, null) }
+            val ss = ctx.serverSocketFactory.createServerSocket(0, 10, InetAddress.getByName("127.0.0.1")) as javax.net.ssl.SSLServerSocket
+            val t = Thread {
+                while (!ss.isClosed) {
+                    val sock = try { ss.accept() as javax.net.ssl.SSLSocket } catch (_: IOException) { break }
+                    try {
+                        sock.startHandshake()
+                        val ins = sock.getInputStream().bufferedReader()
+                        while (true) { val l = ins.readLine(); if (l.isNullOrEmpty()) break }
+                        sock.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nabc".toByteArray())
+                        sock.getOutputStream().flush()
+                    } catch (err: Throwable) {
+                        serverErrors.add(err)
+                    } finally {
+                        runCatching { sock.close() }
+                    }
+                }
+            }.apply { isDaemon = true; start() }
+            return ss to t
+        }
+
+        val (_, goodKs) = genKeyStore("localhost")
+        val (_, wrongKs) = genKeyStore("wrong-host.example")
+        val trustKs = java.security.KeyStore.getInstance(java.security.KeyStore.getDefaultType()).apply {
+            load(null, null)
+            setCertificateEntry("good", goodKs.getCertificate("srv"))
+            setCertificateEntry("wrong", wrongKs.getCertificate("srv"))
+        }
+        val conscryptIndex = java.security.Security.getProviders().indexOfFirst { it.name == "Conscrypt" }
+        val conscryptProvider = if (conscryptIndex >= 0) java.security.Security.getProvider("Conscrypt") else null
+        if (conscryptProvider != null) {
+            java.security.Security.removeProvider("Conscrypt")
+        }
+        var goodSrv: javax.net.ssl.SSLServerSocket? = null
+        var wrongSrv: javax.net.ssl.SSLServerSocket? = null
+        try {
+            val tmf = javax.net.ssl.TrustManagerFactory.getInstance("PKIX", "SunJSSE")
+            tmf.init(trustKs)
+            val clientCtx = javax.net.ssl.SSLContext.getInstance("TLS", "SunJSSE").apply { init(null, tmf.trustManagers, null) }
+            goodSrv = startTlsServer(goodKs).first
+            wrongSrv = startTlsServer(wrongKs).first
+            val api = SottoApi(
+                connectTimeoutMs = 5_000,
+                readTimeoutMs = 5_000,
+                sslSocketFactory = { clientCtx.socketFactory },
+            )
+            val okDest = File(tempRoot, "ok.aac")
+            try {
+                api.downloadAudio("https://localhost:${goodSrv.localPort}", "tok", "clip.aac", okDest)
+            } catch (t: Throwable) {
+                throw AssertionError("Good TLS download failed; serverErrors=${serverErrors.map { it.stackTraceToString() }}", t)
+            }
+            assertArrayEquals("abc".toByteArray(), okDest.readBytes())
+
+            val badDest = File(tempRoot, "bad.aac")
+            assertThrows(javax.net.ssl.SSLException::class.java) {
+                runBlocking {
+                    api.downloadAudio("https://127.0.0.1:${wrongSrv.localPort}", "tok", "clip.aac", badDest)
+                }
+            }
+            assertThrows(javax.net.ssl.SSLHandshakeException::class.java) {
+                runBlocking {
+                    api.rename("https://127.0.0.1:${wrongSrv.localPort}", "tok", "essay.aac", "New")
+                }
+            }
+            assertFalse(badDest.exists())
+        } finally {
+            runCatching { goodSrv?.close() }
+            runCatching { wrongSrv?.close() }
+            if (conscryptProvider != null) {
+                java.security.Security.insertProviderAt(conscryptProvider, conscryptIndex + 1)
+            }
+        }
+    }
+
+    @Test
+    fun `downloadTo withConnection branch downloads audio and handles 404 text`() = runBlocking {
+        val payload = "android-connection-bytes".toByteArray()
+        handler.set { ex ->
+            when (ex.rawPath) {
+                "/api/v1/library/clip.aac/audio" -> replyBytes(ex, 200, payload)
+                "/api/v1/library/clip.aac/text" -> replyText(ex, 404, "no text")
+                else -> replyText(ex, 500, "unexpected")
+            }
+        }
+        val api = SottoApi(shouldUseRawDownload = { false })
+        val audioDest = File(tempRoot, "conn-audio.aac")
+        var lastReported = 0L
+        api.downloadAudio(baseUrl, "tok", "clip.aac", audioDest) { lastReported = it }
+        assertArrayEquals(payload, audioDest.readBytes())
+        assertEquals(payload.size.toLong(), lastReported)
+
+        val textDest = File(tempRoot, "conn-text.md")
+        assertFalse(api.downloadText(baseUrl, "tok", "clip.aac", textDest))
+        assertFalse(textDest.exists())
+    }
+
     private fun handleConnection(socket: Socket) {
         socket.use { sock ->
             sock.soTimeout = 10_000

@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -211,7 +212,9 @@ class SyncCoordinatorTest {
 
         val first = async { coord.syncNow() }
         entered.await()
-        val concurrent = (1..3).map { async { coord.syncNow() } }
+        val concurrent = (1..3).map {
+            async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { coord.syncNow() }
+        }
         release.complete(Unit)
 
         val results = (listOf(first) + concurrent).awaitAll()
@@ -561,6 +564,220 @@ class SyncCoordinatorTest {
         }
         assertNull(coord.state.value.accountEmail)
         assertNull(store.load())
+    }
+
+    @Test
+    fun `narrateOnServer does not return active job requestId for a different request`() = runBlocking {
+        val coord = buildCoordinator()
+        coord.awaitInitialized()
+        assertTrue(coord.connect("https://example.test", "user@example.com", "pw").isSuccess)
+
+        val pollGate = CompletableDeferred<ServerJob>()
+        server.onJobStatus = { pollGate.await() }
+
+        val firstReqId = coord.narrateOnServer("first text", "onyx", "First")
+        withTimeout(2_000) {
+            while (coord.state.value.serverNarration !is ServerNarrationState.Polling) {
+                kotlinx.coroutines.delay(5)
+            }
+        }
+
+        val secondReqId = coord.narrateOnServer("second text", "onyx", "Second")
+        pollGate.complete(ServerJob("done", 100, "nar.aac", null))
+
+        org.junit.Assert.assertNotEquals(firstReqId, secondReqId)
+        withTimeout(2_000) {
+            while (coord.state.value.serverNarration !is ServerNarrationState.Completed) {
+                kotlinx.coroutines.delay(5)
+            }
+        }
+        assertEquals(secondReqId, (coord.state.value.serverNarration as ServerNarrationState.Completed).requestId)
+    }
+
+    @Test
+    fun `stale epoch reconciliation finally must not clear newer epoch syncingLibrary`() = runBlocking {
+        val coord = buildCoordinator()
+        coord.awaitInitialized()
+        assertTrue(coord.connect("https://example.test", "one@example.com", "pw").isSuccess)
+
+        val epoch1Entered = CompletableDeferred<Unit>()
+        val releaseEpoch1Unwind = CompletableDeferred<Unit>()
+        val epoch2Entered = CompletableDeferred<Unit>()
+        val releaseEpoch2 = CompletableDeferred<Unit>()
+        server.onLibrary = { token ->
+            if (token == "tok-one@example.com") {
+                epoch1Entered.complete(Unit)
+                try {
+                    CompletableDeferred<Unit>().await()
+                } finally {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                        releaseEpoch1Unwind.await()
+                    }
+                }
+                emptyList()
+            } else {
+                epoch2Entered.complete(Unit)
+                releaseEpoch2.await()
+                emptyList()
+            }
+        }
+
+        val sync1 = async { coord.syncNow() }
+        withTimeout(2_000) { epoch1Entered.await() }
+
+        val connect2 = async { coord.connect("https://example.test", "two@example.com", "pw") }
+        withTimeout(2_000) {
+            while (coord.state.value.accountEmail != "two@example.com") kotlinx.coroutines.delay(5)
+        }
+
+        val sync2 = async { coord.syncNow() }
+        withTimeout(2_000) { epoch2Entered.await() }
+        assertTrue(coord.state.value.syncingLibrary)
+
+        releaseEpoch1Unwind.complete(Unit)
+        withTimeout(2_000) { sync1.await() }
+        withTimeout(2_000) { connect2.await() }
+
+        try {
+            assertTrue(coord.state.value.syncingLibrary)
+        } finally {
+            releaseEpoch2.complete(Unit)
+            sync2.await()
+        }
+    }
+
+    @Test
+    fun `expired epoch sync cleanup does not clear newer epoch syncingLibrary flag`() = runBlocking {
+        val coord = buildCoordinator()
+        coord.awaitInitialized()
+        assertTrue(coord.connect("https://s1.example.test", "a@example.com", "pw1").isSuccess)
+        val sync1Entered = CompletableDeferred<Unit>()
+        val releaseSync1 = CompletableDeferred<Unit>()
+        val releaseCleanup = CompletableDeferred<Unit>()
+        val sync2Entered = CompletableDeferred<Unit>()
+        val releaseSync2 = CompletableDeferred<Unit>()
+        server.onLibrary = { token ->
+            if (token == "tok-a@example.com") {
+                sync1Entered.complete(Unit)
+                try {
+                    releaseSync1.await()
+                } finally {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                        releaseCleanup.await()
+                    }
+                }
+                emptyList()
+            } else {
+                sync2Entered.complete(Unit)
+                releaseSync2.await()
+                emptyList()
+            }
+        }
+        val sync1 = async { coord.syncNow() }
+        withTimeout(2_000) { sync1Entered.await() }
+        server.onJobStatus = { throw UnauthorizedApiException("expired") }
+        coord.narrateOnServer("x", "onyx", "X")
+        withTimeout(2_000) { while (coord.state.value.accountEmail != null) kotlinx.coroutines.delay(5) }
+        assertTrue(coord.connect("https://s2.example.test", "b@example.com", "pw2").isSuccess)
+        val sync2 = async { coord.syncNow() }
+        withTimeout(2_000) { sync2Entered.await() }
+        assertTrue(coord.state.value.syncingLibrary)
+        releaseCleanup.complete(Unit)
+        withTimeout(2_000) { sync1.await() }
+        try {
+            assertTrue("Stale epoch cleared active epoch syncingLibrary", coord.state.value.syncingLibrary)
+        } finally {
+            releaseSync2.complete(Unit)
+            sync2.await()
+        }
+    }
+
+    @Test
+    fun `401 during post-rename refresh does not overwrite expired state with accountSyncStatus`() = runBlocking {
+        val coord = buildCoordinator()
+        coord.awaitInitialized()
+        assertTrue(coord.connect("https://example.test", "user@example.com", "pw").isSuccess)
+
+        val remote = RemoteEntry("remote.aac", "Remote Title", 10, 5, "onyx", 100, 5, 100L, false)
+        db.orations().insert(
+            OrationEntity(
+                id = "o1",
+                title = "Local Rename",
+                status = "COMPLETE",
+                voiceId = "af_heart",
+                words = 10,
+                chunksTotal = null,
+                audioBytes = 100,
+                createdAt = 1_000L,
+                updatedAt = 200_000L,
+                serverName = "remote.aac",
+                serverMtime = 100L,
+                downloaded = false,
+            ),
+        )
+        val calls = AtomicInteger(0)
+        server.onLibrary = {
+            if (calls.incrementAndGet() == 1) listOf(remote) else throw UnauthorizedApiException("expired")
+        }
+
+        coord.syncNow()
+
+        assertNull(coord.state.value.accountEmail)
+        assertNull(coord.state.value.accountSyncStatus)
+    }
+
+    @Test
+    fun `upload dispatches missing audio check onto ioDispatcher off caller thread`() = runBlocking {
+        val ioDispatches = AtomicInteger(0)
+        val exec = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val ioThreadName = "test-io-worker"
+        val worker = java.util.concurrent.Executor { cmd ->
+            ioDispatches.incrementAndGet()
+            exec.execute {
+                val prev = Thread.currentThread().name
+                Thread.currentThread().name = ioThreadName
+                try {
+                    cmd.run()
+                } finally {
+                    Thread.currentThread().name = prev
+                }
+            }
+        }.asCoroutineDispatcher()
+        val coord = RealSyncCoordinator(
+            db = db,
+            filesDir = filesDir,
+            api = server,
+            credentials = store,
+            narrationFacts = narrationFacts,
+            ioDispatcher = worker,
+            clock = { nowMs },
+            idGenerator = { "id-${nextId.getAndIncrement()}" },
+        ).also { coordinators.add(it) }
+        try {
+            coord.awaitInitialized()
+            assertTrue(coord.connect("http://s", "a@example.com", "pw").isSuccess)
+            val before = ioDispatches.get()
+            val row = OrationEntity(
+                id = "o-missing",
+                title = "Missing",
+                status = "COMPLETE",
+                voiceId = "af_heart",
+                words = 5,
+                chunksTotal = null,
+                audioBytes = 10,
+                createdAt = 1_000L,
+                updatedAt = 1_000L,
+                downloaded = true,
+            )
+            val res = coord.upload(row)
+            assertTrue(res.isFailure)
+            assertTrue(res.exceptionOrNull() is IllegalArgumentException)
+            assertTrue("Expected upload missing-audio check to dispatch to ioDispatcher", ioDispatches.get() > before)
+        } finally {
+            coordinators.remove(coord)
+            coord.shutdown().await()
+            exec.shutdownNow()
+        }
     }
 
     private class InMemoryCredentialStore : CredentialStore {
