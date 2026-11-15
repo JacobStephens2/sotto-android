@@ -164,7 +164,7 @@ class NarrationService : MediaSessionService() {
             val (pos, ended, version) = withContext(Dispatchers.Main) {
                 Triple(player.currentPosition, player.playbackState == Player.STATE_ENDED, playbackVersion)
             }
-            if (pos > 0) db.orations().setPlayhead(id, pos, System.currentTimeMillis())
+            if (pos > 0) db.orations().setPlayhead(id, pos)
             if (ended && narrator.facts.value.activeId == id) {
                 val row = db.orations().byId(id) ?: continue
                 withContext(Dispatchers.Main) {
@@ -197,7 +197,7 @@ class NarrationService : MediaSessionService() {
             val pos = player.currentPosition
             val dao = db.orations()
             if (pos > 0) CoroutineScope(Dispatchers.IO).launch {
-                dao.setPlayhead(id, pos, System.currentTimeMillis())
+                dao.setPlayhead(id, pos)
             }
         }
         session?.release(); session = null

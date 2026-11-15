@@ -21,6 +21,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import page.stephens.sotto.engine.store.SottoDatabase
 import page.stephens.sotto.shell.service.NarrationCoordinatorProvider
+import page.stephens.sotto.shell.sync.SyncCoordinatorProvider
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -34,6 +35,7 @@ class ConfirmCreationTest {
     fun cleanUp() {
         val activity = compose.activity
         runBlocking(Dispatchers.IO) {
+            SyncCoordinatorProvider.shutdownForTest()?.await()
             NarrationCoordinatorProvider.shutdownForTest()?.await()
             SottoDatabase.open(activity).clearAllTables()
             File(activity.filesDir, "orations").deleteRecursively()

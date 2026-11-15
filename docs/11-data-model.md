@@ -20,12 +20,12 @@ artifacts. Layout mirrors the server's library sidecar convention (`.mp3` +
 | audioBytes | Long | last durable byte offset; truncate-to here on resume |
 | audioDurationMs | Long | derived, updated per chunk |
 | narratedMs | Long | accumulated wall-clock synthesis time across resumes (fixes the server's known undercount) |
-| createdAt / updatedAt | Long | epoch ms |
+| createdAt / updatedAt | Long | epoch ms (`updatedAt` changes only on creation, local rename, narration progress/lifecycle, recovery, or pulled remote rename) |
 | queuedAt | Long | durable ordinary request time; pickup sorts ascending, then by stable ID |
-| playheadMs | Long | last listening position (S2 position memory) |
+| playheadMs | Long | last listening position (`setPlayhead` never overwrites `updatedAt`) |
 | errorMessage | String? | ERROR: terminal error detail; STOPPED: the stop's cause when it was not the user (storage full) |
 | serverName | String? | sync key: filename in the server library (`sync` flavor; null = never synced) |
-| serverMtime | Long? | server-side mtime at last sync, for rename LWW (12-api-contract.md) |
+| serverMtime | Long? | server-side mtime (seconds, except pulled LWW also sets `updatedAt = mtime * 1000`); `markSynced`/`setDownloaded` return affected `Int` row counts and leave `updatedAt` untouched |
 | downloaded | Bool | false for SERVER_ONLY rows (metadata known, audio not yet fetched) |
 
 Files: `orations/<id>/audio.aac` (ADTS AAC), `orations/<id>/source.md`.
@@ -43,14 +43,19 @@ Creation and orphan classification/removal share a private process monitor,
 so sweeping cannot remove a live preparation before its row commits. Every
 directory with a row survives sweeping. This is ordered filesystem/Room
 publication, not a cross-store atomic transaction or a power-loss guarantee.
-Schema and queue ordering are unchanged. Sync library/download publication
-keeps its separate metadata-first protocol.
+Schema and queue ordering are unchanged. Sync transfers stage audio and optional
+source text inside `filesDir/sync-staging/<attempt>/` outside `orations/` (swept
+on sync startup), promote files only before calling `setDownloaded`, and roll back
+attempt-owned files without writing `"downloaded"` when Room returns `0` updated
+rows. Pulled remote renames write `mtime * 1000` into `updatedAt` and append a
+`"renamed"` `JobLogEntry`.
 
 Schema v2 adds `queuedAt`. The v1 migration initializes it from `createdAt`
 without rebuilding rows or changing titles, sync metadata, listening positions,
 chunk counts, byte offsets, or accumulated narration time. New rows initialize
-it at creation. `updatedAt` remains a general metadata timestamp, not a queue
-ordering field.
+it at creation. `updatedAt` tracks title conflict resolution alongside local
+narration writes; `setPlayhead`, `markSynced`, and `setDownloaded` leave it
+unchanged so 2s playback ticks and routine syncs cannot mask desktop renames.
 
 ### JobLogEntry
 

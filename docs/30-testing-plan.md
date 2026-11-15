@@ -45,6 +45,27 @@
   deletion logs as well as final states. Observe listen-now only after saved
   durable audio and fence stale events after Stop, deletion, or detach.
 
+- Check `setPlayhead`, `markSynced`, and `setDownloaded` preserve `updatedAt` and
+  return affected row counts (`QueuePersistenceTest`), plus `sync`-flavor unit
+  suites (`app/src/testSync/`):
+  - `SottoApiContractTest`: loopback `ServerSocket` HTTP/1.1 contract coverage
+    (token/capabilities, RFC 3986 path encoding and traversal rejection,
+    optional `404` vs `200` source text, non-2xx error body draining and temp
+    cleanup, `409` `If-None-Match: *` upload conflict retry, `PATCH` rename,
+    `401` distinction, and socket close on coroutine cancellation).
+  - `SyncCoordinatorTest`: real in-memory Room, temporary files, blocking/failing
+    `RemoteServer`, and in-memory `CredentialStore` covering startup/epoch
+    fencing, `401` auto-disconnect without clobbering newer sessions,
+    single-flight sync coalescing, remote LWW rename surviving frequent playhead
+    ticks, external `sync-staging` survival across `sweepOrphans()`, deletion
+    cancellation and 0-row commit rollback, upload dedupe, and bounded server
+    narration polling edge cases.
+  - `SyncUiTest`: Robolectric Compose caller coverage for Account connection/sync
+    across recreation and off-main disconnect, Library download progress across
+    recreation, dedupe, failure toasts, and refresh feedback, Oration sheet upload
+    dedupe and result toasts, and Confirm capability refresh and
+    requestId-matched server narration across recreation.
+
 **2. Instrumented tests (Room + engine, emulator x86_64 debug variant)**
 - Resume correctness: kill the process mid-narration at randomized chunk
   boundaries; assert byte-identical output versus an uninterrupted run (the

@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -59,15 +60,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -81,6 +86,9 @@ import page.stephens.sotto.engine.text.Titles
 import page.stephens.sotto.shell.service.InAppNarrationService
 import page.stephens.sotto.shell.service.NarrationService
 import page.stephens.sotto.shell.service.NarrationCoordinatorProvider
+import page.stephens.sotto.shell.sync.ServerNarrationState
+import page.stephens.sotto.shell.sync.SyncCoordinatorProvider
+import page.stephens.sotto.shell.sync.SyncState
 import java.io.File
 
 private val VOICES = listOf(
@@ -110,10 +118,33 @@ private sealed class Screen {
     data object Account : Screen()
 }
 
+private val ScreenSaver = listSaver<Screen, String>(
+    save = { s ->
+        when (s) {
+            Screen.Library -> listOf("library")
+            Screen.Compose -> listOf("compose")
+            is Screen.Confirm -> listOf("confirm", s.text)
+            is Screen.Play -> listOf("play", s.id)
+            Screen.About -> listOf("about")
+            Screen.Account -> listOf("account")
+        }
+    },
+    restore = { list ->
+        when (list.firstOrNull()) {
+            "compose" -> Screen.Compose
+            "confirm" -> Screen.Confirm(list.getOrElse(1) { "" })
+            "play" -> Screen.Play(list.getOrElse(1) { "" })
+            "about" -> Screen.About
+            "account" -> Screen.Account
+            else -> Screen.Library
+        }
+    },
+)
+
 class SottoActivity : ComponentActivity() {
 
     private lateinit var db: SottoDatabase
-    private val sync by lazy { page.stephens.sotto.shell.sync.Sync.provider(this) }
+    private val sync by lazy { SyncCoordinatorProvider.get(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -121,12 +152,14 @@ class SottoActivity : ComponentActivity() {
         val sharedIn = sharedText(intent)
         setContent {
             SottoTheme {
-                var screen by remember {
+                val syncState = sync?.state?.collectAsState(context = Dispatchers.Main.immediate)?.value
+                var screen by rememberSaveable(stateSaver = ScreenSaver) {
                     mutableStateOf<Screen>(if (sharedIn != null) Screen.Confirm(sharedIn) else Screen.Library)
                 }
                 BackHandler(enabled = screen != Screen.Library) { screen = Screen.Library }
                 when (val s = screen) {
                     is Screen.Library -> LibraryScreen(
+                        syncState = syncState,
                         onOpen = { o ->
                             if (!o.downloaded) downloadFromServer(o)
                             else { openOration(o); screen = Screen.Play(o.id) }
@@ -138,11 +171,11 @@ class SottoActivity : ComponentActivity() {
                     is Screen.Compose -> ComposeScreen(
                         onContinue = { text -> accepted(text)?.let { screen = Screen.Confirm(it) } },
                         onBack = { screen = Screen.Library })
-                    is Screen.Confirm -> ConfirmScreen(s.text,
+                    is Screen.Confirm -> ConfirmScreen(s.text, syncState = syncState,
                         onDone = { screen = Screen.Library })
                     is Screen.Play -> PlayerScreen(s.id, onBack = { screen = Screen.Library })
                     is Screen.About -> AboutScreen(onBack = { screen = Screen.Library })
-                    is Screen.Account -> AccountScreen(onBack = { screen = Screen.Library })
+                    is Screen.Account -> AccountScreen(syncState = syncState, onBack = { screen = Screen.Library })
                 }
             }
         }
@@ -193,9 +226,9 @@ class SottoActivity : ComponentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    private fun ConfirmScreen(text: String, onDone: () -> Unit) {
-        var title by remember { mutableStateOf(Titles.derive(text)) }
-        var voice by remember { mutableStateOf("af_heart") }
+    private fun ConfirmScreen(text: String, syncState: SyncState?, onDone: () -> Unit) {
+        var title by rememberSaveable(text) { mutableStateOf(Titles.derive(text)) }
+        var voice by rememberSaveable(text) { mutableStateOf("af_heart") }
         val words = remember(text) { text.trim().split(Regex("\\s+")).size }
         // Calibrated rate: median of this device's completed orations, else the
         // SPIKE-002 constant (the server's calibrated_rates logic, local).
@@ -208,12 +241,42 @@ class SottoActivity : ComponentActivity() {
         val estMin = (words * rate / 60).coerceAtLeast(1.0)
         // Server narration is offered only when connected to an account the server
         // lets onto the paid OpenAI backend (docs/12-api-contract.md, /api/v1/me).
-        val server by produceState<page.stephens.sotto.shell.sync.ServerAccount?>(null) {
-            value = sync?.account()?.getOrNull()
+        LaunchedEffect(sync, syncState?.accountEmail) {
+            if (sync != null && syncState?.accountEmail != null) {
+                sync?.refreshAccount(force = false)
+            }
         }
-        var onServer by remember { mutableStateOf(false) }
-        var serverPct by remember { mutableStateOf<Int?>(null) }   // non-null while a server job runs
-        var serverErr by remember { mutableStateOf<String?>(null) }
+        val server = syncState?.capabilities
+        var onServer by rememberSaveable(text) { mutableStateOf(false) }
+        var activeServerRequestId by rememberSaveable(text) { mutableStateOf<String?>(null) }
+        val activeServerState = syncState?.serverNarration?.takeIf { state ->
+            when (state) {
+                ServerNarrationState.Idle -> false
+                is ServerNarrationState.Submitting -> state.requestId == activeServerRequestId
+                is ServerNarrationState.Polling -> state.requestId == activeServerRequestId
+                is ServerNarrationState.Completed -> state.requestId == activeServerRequestId
+                is ServerNarrationState.Failed -> state.requestId == activeServerRequestId
+            }
+        }
+        LaunchedEffect(activeServerState) {
+            if (activeServerState is ServerNarrationState.Completed) {
+                sync?.acknowledgeServerNarration(activeServerState.requestId)
+                activeServerState.syncError?.let {
+                    Toast.makeText(
+                        this@SottoActivity,
+                        "Server narration finished, but sync failed: $it",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                onDone()
+            }
+        }
+        val serverPct: Int? = when (activeServerState) {
+            is ServerNarrationState.Submitting -> 0
+            is ServerNarrationState.Polling -> activeServerState.pct
+            else -> null
+        }
+        val serverErr: String? = (activeServerState as? ServerNarrationState.Failed)?.message
         var saving by remember { mutableStateOf(false) }
         var saveError by remember { mutableStateOf<String?>(null) }
         val scope = rememberCoroutineScope()
@@ -232,11 +295,21 @@ class SottoActivity : ComponentActivity() {
 
                 if (server?.mayOpenai == true && openaiVoices.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Switch(checked = onServer, enabled = !busy, onCheckedChange = {
-                            onServer = it
-                            voice = if (it) (openaiVoices.firstOrNull() ?: "onyx") else "af_heart"
-                        })
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(
+                                value = onServer,
+                                enabled = !busy,
+                                role = Role.Switch,
+                                onValueChange = {
+                                    onServer = it
+                                    voice = if (it) (openaiVoices.firstOrNull() ?: "onyx") else "af_heart"
+                                },
+                            ),
+                    ) {
+                        Switch(checked = onServer, enabled = !busy, onCheckedChange = null)
                         Spacer(Modifier.width(8.dp))
                         Text("Narrate on the server (OpenAI)", style = MaterialTheme.typography.bodyMedium)
                     }
@@ -307,23 +380,16 @@ class SottoActivity : ComponentActivity() {
                         return@Button
                     }
                     val s = sync ?: return@Button
-                    scope.launch {
-                        serverErr = null; serverPct = 0
-                        val jobId = s.narrateOnServer(text, voice, finalTitle).getOrElse {
-                            serverErr = it.message ?: "could not submit"; serverPct = null; return@launch
-                        }
-                        while (true) {
-                            kotlinx.coroutines.delay(2500)
-                            val st = s.serverJobStatus(jobId).getOrNull() ?: continue
-                            serverPct = st.pct
-                            if (st.error != null) { serverErr = st.error; serverPct = null; break }
-                            if (st.status == "done" && st.name != null) {
-                                s.syncNow(); serverPct = null; onDone(); break
-                            }
-                        }
-                    }
+                    activeServerRequestId = s.narrateOnServer(text, voice, finalTitle)
                 }) { Text(if (onServer) "Narrate on server" else "Narrate") }
-                TextButton(onClick = onDone, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Cancel") }
+                TextButton(
+                    onClick = {
+                        activeServerRequestId?.let { sync?.acknowledgeServerNarration(it) }
+                        onDone()
+                    },
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Cancel") }
             }
         }
     }
@@ -374,11 +440,11 @@ class SottoActivity : ComponentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
     @Composable
-    private fun LibraryScreen(onOpen: (OrationEntity) -> Unit, onAbout: () -> Unit,
+    private fun LibraryScreen(syncState: SyncState?, onOpen: (OrationEntity) -> Unit, onAbout: () -> Unit,
                               onCompose: () -> Unit, onAccount: (() -> Unit)?,
                               onLibrary: (() -> Unit)?) {
-        val items by db.orations().allFlow().collectAsState(initial = emptyList())
-        val downloads by page.stephens.sotto.shell.sync.DownloadProgress.state.collectAsState()
+        val items by db.orations().allFlow().collectAsState(initial = emptyList(), context = Dispatchers.Main.immediate)
+        val downloads = syncState?.activeDownloads ?: emptyMap()
         var sheetFor by remember { mutableStateOf<OrationEntity?>(null) }
         Scaffold(topBar = {
             TopAppBar(title = { SottoWordmark() }, actions = {
@@ -425,7 +491,7 @@ class SottoActivity : ComponentActivity() {
                 }
             }
         }
-        sheetFor?.let { o -> OrationSheet(o, onDismiss = { sheetFor = null }) }
+        sheetFor?.let { o -> OrationSheet(o, syncState = syncState, onDismiss = { sheetFor = null }) }
     }
 
     private fun subtitleOf(o: OrationEntity) = if (!o.downloaded)
@@ -441,11 +507,12 @@ class SottoActivity : ComponentActivity() {
     }
 
     private fun downloadFromServer(o: OrationEntity) {
-        if (page.stephens.sotto.shell.sync.DownloadProgress.isActive(o.id)) return
+        val s = sync ?: return
+        if (o.id in s.state.value.activeDownloads) return
         lifecycleScope.launch {
-            sync?.download(o)?.onFailure { t ->
-                lifecycleScope.launch(Dispatchers.IO) {
-                    JobLog(db.joblog()).log("error", o.title, o.id, "download: $t")
+            s.download(o).onFailure { t ->
+                if (t !is CancellationException) {
+                    Toast.makeText(this@SottoActivity, "Download failed: ${t.message}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -456,20 +523,24 @@ class SottoActivity : ComponentActivity() {
     // connected account.
     private fun refreshLibrary() {
         val s = sync ?: return
-        if (s.accountEmail() == null) {
+        if (s.state.value.accountEmail == null) {
             Toast.makeText(this, "Connect your account first (Account)", Toast.LENGTH_SHORT).show()
             return
         }
         lifecycleScope.launch {
             s.syncNow()
                 .onSuccess { Toast.makeText(this@SottoActivity, it, Toast.LENGTH_SHORT).show() }
-                .onFailure { Toast.makeText(this@SottoActivity, "Sync failed: ${it.message}", Toast.LENGTH_SHORT).show() }
+                .onFailure { t ->
+                    if (t !is CancellationException) {
+                        Toast.makeText(this@SottoActivity, "Sync failed: ${t.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
         }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    private fun OrationSheet(o: OrationEntity, onDismiss: () -> Unit) {
+    private fun OrationSheet(o: OrationEntity, syncState: SyncState?, onDismiss: () -> Unit) {
         var renaming by remember { mutableStateOf(false) }
         var viewingSource by remember { mutableStateOf(false) }
         val export = rememberLauncherForActivityResult(
@@ -487,13 +558,25 @@ class SottoActivity : ComponentActivity() {
                 modifier = Modifier.clickable { renaming = true })
             ListItem(headlineContent = { Text("View source text") },
                 modifier = Modifier.clickable { viewingSource = true })
-            if (sync?.accountEmail() != null && o.serverName == null && o.downloaded &&
+            if (syncState?.accountEmail != null && o.serverName == null && o.downloaded &&
                 o.status in listOf("COMPLETE", "STOPPED")) {
-                ListItem(headlineContent = { Text("Upload to account") },
-                    modifier = Modifier.clickable {
-                        lifecycleScope.launch { sync?.upload(o) }
+                val uploading = o.id in syncState.activeUploads
+                ListItem(
+                    headlineContent = { Text(if (uploading) "Uploading..." else "Upload to account") },
+                    modifier = Modifier.clickable(enabled = !uploading) {
+                        val s = sync ?: return@clickable
+                        lifecycleScope.launch {
+                            s.upload(o)
+                                .onSuccess { msg -> Toast.makeText(this@SottoActivity, msg, Toast.LENGTH_SHORT).show() }
+                                .onFailure { t ->
+                                    if (t !is CancellationException) {
+                                        Toast.makeText(this@SottoActivity, "Upload failed: ${t.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                        }
                         onDismiss()
-                    })
+                    },
+                )
             }
             ListItem(headlineContent = { Text("Export audio") },
                 modifier = Modifier.clickable {
@@ -557,7 +640,7 @@ class SottoActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     private fun PlayerScreen(id: String, onBack: () -> Unit) {
-        val row by db.orations().byIdFlow(id).collectAsState(initial = null)
+        val row by db.orations().byIdFlow(id).collectAsState(initial = null, context = Dispatchers.Main.immediate)
         val controller = rememberController()
         var positionMs by remember { mutableStateOf(0L) }
         var durationMs by remember { mutableStateOf(0L) }
@@ -675,21 +758,22 @@ class SottoActivity : ComponentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    private fun AccountScreen(onBack: () -> Unit) {
+    private fun AccountScreen(syncState: SyncState?, onBack: () -> Unit) {
         val provider = sync ?: return
-        var email by remember { mutableStateOf(provider.accountEmail()) }
-        var server by remember { mutableStateOf("sotto.stephens.page") }
-        var formEmail by remember { mutableStateOf("") }
+        val email = syncState?.accountEmail
+        var server by rememberSaveable { mutableStateOf("sotto.stephens.page") }
+        var formEmail by rememberSaveable { mutableStateOf("") }
         var password by remember { mutableStateOf("") }
-        var status by remember { mutableStateOf<String?>(null) }
-        var busy by remember { mutableStateOf(false) }
+        val authBusy = syncState?.authBusy == true
+        val syncing = syncState?.syncingLibrary == true
+        val status = syncState?.accountSyncStatus
+            ?: syncState?.authStatus?.takeUnless { email != null && it == "Connected as $email" }
         Scaffold(topBar = {
             TopAppBar(title = { Text("Account") },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } })
         }) { pad ->
             Column(Modifier.padding(pad).padding(16.dp).verticalScroll(rememberScrollState())) {
-                val connected = email
-                if (connected == null) {
+                if (email == null) {
                     Text("Connect your Sotto server account to keep one library on " +
                         "this phone and your desktop browser. Narration always stays " +
                         "on this device - only finished orations sync.",
@@ -704,30 +788,24 @@ class SottoActivity : ComponentActivity() {
                         visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                         modifier = Modifier.fillMaxWidth())
                     Spacer(Modifier.height(12.dp))
-                    Button(enabled = !busy && formEmail.isNotBlank() && password.isNotBlank(),
+                    Button(enabled = !authBusy && formEmail.isNotBlank() && password.isNotBlank(),
                         onClick = {
-                            busy = true
                             lifecycleScope.launch {
                                 provider.connect(server, formEmail, password)
-                                    .onSuccess { m -> status = m; email = provider.accountEmail(); password = "" }
-                                    .onFailure { t -> status = "Could not connect: ${t.message}" }
-                                busy = false
+                                    .onSuccess { password = "" }
                             }
-                        }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Connecting..." else "Connect") }
+                        }, modifier = Modifier.fillMaxWidth()) { Text(if (authBusy) "Connecting..." else "Connect") }
                 } else {
-                    Text("Connected as $connected", style = MaterialTheme.typography.bodyLarge)
+                    Text("Connected as $email", style = MaterialTheme.typography.bodyLarge)
                     Spacer(Modifier.height(12.dp))
-                    Button(enabled = !busy, onClick = {
-                        busy = true
-                        lifecycleScope.launch {
-                            provider.syncNow()
-                                .onSuccess { m -> status = m }
-                                .onFailure { t -> status = "Sync failed: ${t.message}" }
-                            busy = false
-                        }
-                    }, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Syncing..." else "Sync now") }
-                    TextButton(onClick = { provider.disconnect(); email = null; status = "Disconnected." },
-                        modifier = Modifier.fillMaxWidth()) { Text("Disconnect") }
+                    Button(enabled = !syncing && !authBusy, onClick = {
+                        lifecycleScope.launch { provider.syncNow() }
+                    }, modifier = Modifier.fillMaxWidth()) { Text(if (syncing) "Syncing..." else "Sync now") }
+                    TextButton(
+                        enabled = !authBusy,
+                        onClick = { lifecycleScope.launch { provider.disconnect() } },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Disconnect") }
                 }
                 status?.let { Spacer(Modifier.height(12.dp)); Text(it, style = MaterialTheme.typography.bodyMedium) }
             }

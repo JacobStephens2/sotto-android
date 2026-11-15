@@ -1,7 +1,25 @@
 # Tasks - sotto-android (living)
 
-Status: release hardware gates remain; ordinary and Lab narration share retained
-process-wide ownership (issues #15-16). Updated 2026-11-14.
+Status: release hardware gates remain; ordinary/Lab narration and opt-in sync
+coordination share retained process-wide ownership (issues #15-16, #24). Updated 2026-11-15.
+
+## Opt-in sync deepening (issue #24)
+
+- [x] Consolidate sync behind nullable process-wide `SyncCoordinator` and
+      `SyncCoordinatorProvider` (`null` in `local`; retained singleton with
+      `setForTest`/`shutdownForTest` in `sync`), removing `SyncProvider`,
+      `DownloadProgress`, and `RealSync`
+- [x] Separate Room `updatedAt` from `setPlayhead`, `markSynced`, and
+      `setDownloaded` (`Int` row counts) without a schema migration; preserve
+      existing `local` and `sync` APK permissions verbatim
+- [x] Implement `RealSyncCoordinator`, `RemoteServer`/`SottoApi`, and
+      `CredentialStore`/`EncryptedCredentialStore` inside `src/sync/` (single-flight
+      sync, monotonic epoch fencing, `401` auto-disconnect, external
+      `sync-staging/`, `deletingIds` cancellation and 0-row rollback, bounded
+      `ServerNarrationState` polling, percent-encoding, cancellation socket close)
+- [x] Migrate `SottoActivity` callers (Library, Oration sheet upload, Account,
+      Confirm, About) and prove behavior in `QueuePersistenceTest` plus
+      `src/testSync/` (`SottoApiContractTest`, `SyncCoordinatorTest`, `SyncUiTest`)
 
 ## Durable Oration narration (issue #22)
 

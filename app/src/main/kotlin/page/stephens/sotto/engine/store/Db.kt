@@ -70,8 +70,8 @@ interface OrationDao {
     @Query("UPDATE orations SET chunksTotal = :total, updatedAt = :now WHERE id = :id")
     fun setChunksTotal(id: String, total: Int, now: Long)
 
-    @Query("UPDATE orations SET playheadMs = :pos, updatedAt = :now WHERE id = :id")
-    fun setPlayhead(id: String, pos: Long, now: Long)
+    @Query("UPDATE orations SET playheadMs = :pos WHERE id = :id")
+    fun setPlayhead(id: String, pos: Long)
 
     @Query("SELECT * FROM orations WHERE id = :id")
     fun byIdFlow(id: String): kotlinx.coroutines.flow.Flow<OrationEntity?>
@@ -85,11 +85,11 @@ interface OrationDao {
     @Query("SELECT * FROM orations WHERE serverName = :name")
     fun byServerName(name: String): OrationEntity?
 
-    @Query("UPDATE orations SET serverName = :name, serverMtime = :mtime, updatedAt = :now WHERE id = :id")
-    fun markSynced(id: String, name: String, mtime: Long, now: Long)
+    @Query("UPDATE orations SET serverName = :name, serverMtime = :mtime WHERE id = :id")
+    fun markSynced(id: String, name: String, mtime: Long): Int
 
-    @Query("UPDATE orations SET downloaded = 1, audioBytes = :bytes, status = 'COMPLETE', updatedAt = :now WHERE id = :id")
-    fun setDownloaded(id: String, bytes: Long, now: Long)
+    @Query("UPDATE orations SET downloaded = 1, audioBytes = :bytes, status = 'COMPLETE' WHERE id = :id")
+    fun setDownloaded(id: String, bytes: Long): Int
 
     // Per-device seconds-per-word samples for the calibrated estimate
     // (the server's calibrated_rates, local; median taken in Kotlin).
