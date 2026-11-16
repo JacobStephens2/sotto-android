@@ -21,3 +21,8 @@ The exclusive owner of the current narration, from its start through its last
 completed chunk and recorded outcome. A Stop requests a chunk-boundary finish;
 the worker remains occupied until that finish is recorded.
 _Avoid_: Player, playback session
+
+**Oration playback**:
+The Android-owner-scoped control of saved Oration audio, its listening position,
+growing-audio catch-up, and sleep deadline. It does not own the Narration worker.
+_Avoid_: Narration worker, synthesis owner

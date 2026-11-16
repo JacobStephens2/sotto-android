@@ -105,6 +105,17 @@ execution without calling its internal operation directly.
 stopped measurement summary and thread reload with waiting ordinary work.
 `NarrationCommandsTest` exercises the actual Lab gate playback/reset controls
 and deletion followed by playback of a recreated gate in the same media owner.
+`OrationPlaybackTest` drives the same play, listen-now, stop-for-deletion, sleep,
+and close interface as that owner, using real Room rows, temporary audio, and a
+controlled output adapter. Controlled dispatchers and the Robolectric Main
+looper hold real lookups, ticks, deadlines, and persistence to cover both lookup
+orders, explicit/automatic selection, coherent cross-Oration positions, unchanged
+and growing audio including the final tail, current pause/seek/speed, deletion
+and gate recreation, queued deadline replacement/cancel, close with pending work,
+and FIFO positions across replacement owners. Assert output effects, saved
+positions/logs, and drain completion rather than private epochs, jobs, or queues.
+Keep actual Media3 command-entry, sleep, exported rejection, deletion, and Lab
+reset checks alongside these contracts, and independent durability/sync tests.
 `DiagnosticResumeTest` exercises Room, real ADTS encoding, shared gate ownership,
 reset, legacy source fallback, process recovery, and byte-identical resume with
 crash garbage. Existing Room resume/migration instrumentation remains required.

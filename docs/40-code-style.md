@@ -19,6 +19,7 @@ app/src/main/kotlin/page/stephens/sotto/
     store/     Room entities/DAOs, file layout, job log
   shell/       Compose UI, NarrationService, MediaSession, manual process wiring
     synth/     managed sherpa-onnx resource + MediaCodec adapter
+    playback/  owner-scoped OrationPlayback, Media3 output, position FIFO
     sync/      nullable process-wide SyncCoordinator + SyncCoordinatorProvider
 src/local/     local flavor wiring (`SyncFactory` returns null; no network)
 src/sync/      sync flavor only: `SyncFactory`, `RealSyncCoordinator`,
@@ -69,7 +70,14 @@ src/testSync/  sync-flavor JVM suites (`SottoApiContractTest`,
   clear a stopping run's flag. Pickup sorts by persisted `queuedAt`, then ID.
   Once-per-process recovery precedes admission and preserves progress/order.
 - ExoPlayer, MediaSession transport, governor, and sleep timer stay in the
-  existing Android owner. Listen-now consumes saved-durable-audio events with
+  existing Android owner. Its OrationPlayback module hides selection, refresh,
+  deletion epochs, timers, and close behind domain commands on the player thread.
+  Keep output snapshots coherent and revalidate delayed storage results there.
+  Use the narrow output seam with Media3 and controlled test adapters, real
+  Room/files, and internal dispatcher/time controls; no generic storage seam.
+  Only the private application-scoped persistence FIFO outlives close, retaining
+  immutable observations and Room dependencies rather than an owner or player.
+  Listen-now consumes saved-durable-audio events with
   attachment/run fencing; deletion uses a narrow playback-stop callback on the
   required thread. Detach stops pickup, and replacement execution waits for
   the previous writer and model to drain off-main.

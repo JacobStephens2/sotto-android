@@ -1,5 +1,41 @@
 # _state.md - sotto-android session handoff
 
+2026-11-16: Issue #26 deepens Oration playback inside the existing Android media
+owner. `OrationPlayback` accepts play, saved-row listen-now, deletion stop,
+sleep duration, and close; `SavedOrationPlayback` hides request ordering,
+durable-growth refresh, coherent position snapshots, deletion epochs, timer
+tokens, and teardown. The service retains ExoPlayer construction/release and
+MediaSession lifetime. A narrow output seam has Media3 and controlled test
+adapters. Latest explicit acceptance wins even when unavailable; listen-now
+yields to selected/pending explicit work. Refresh uses durable bytes rather
+than worker activity and preserves current position, speed, and pause intent.
+
+`PlaybackPersistence` shares an application-only FIFO across replacement owners.
+Immutable positive-position observations, including close, preserve `updatedAt`;
+deletion epochs are checked inside each Room transaction. Close immediately
+fences player effects, cancels lookups/ticks/deadlines, releases the output, and
+returns an asynchronous drain. Accepted timer pauses enqueue their truthful
+local logs even if close follows. Storage failures remain locally observable.
+No schema, permissions, network, text pipeline, model, scheduling, or ADR change.
+
+The 21 caller-interface contracts use real local Room and temporary audio with
+controlled storage/player dispatch and the Robolectric clock. They cover lookup
+completion order, explicit/listen-now arbitration, unavailable audio, identity
+and position, unchanged/growing/final-tail audio, current pause/seek/speed,
+deletion and gate recreation, queued deadline replacement/cancel, pending work
+at close, FIFO replacement writes, and contained storage failures. Real Media3
+command entry, exported rejection, sleep, deletion, and Lab reset coverage remains.
+Independent narration durability and sync timestamp coverage is unchanged.
+
+Before/after focused runs caught an older lookup reviving after a missing latest
+request, absent durable-tail refresh, missing deletion fencing, absent final
+position writes, and missing timer acceptance. All those regressions pass after
+implementation. The cross-Oration position contract also caught an unintended
+1.6x-to-1x speed reset, now fixed. Nineteen focused playback contracts and the
+retained Media3 command suite passed before the final two close/replacement
+contracts were added for the full validation run. Final validation and review
+results are recorded here before publication. No emulator performance claim.
+
 2026-11-15: Issue #24 replaces the transient `SyncProvider` / `RealSync` seam with a single nullable process-wide `SyncCoordinator` (`shell/sync/SyncCoordinator.kt`, `null` in `local`, `RealSyncCoordinator` retained singleton in `sync/` with `setForTest` and `shutdownForTest`). Confines all HTTP, credentials, and sync runtime code to `src/sync/`, keeps Room at schema v2 (`setPlayhead`, `markSynced`, and `setDownloaded` preserve `updatedAt`; `markSynced` and `setDownloaded` return `Int`), adds single-flight `syncNow()`, remote LWW rename with `"renamed"` `JobLog` (`mtime * 1000`), best-effort post-push/upload `serverMtime` refresh, isolated `filesDir/sync-staging/` downloads with startup sweep and rollback, by-oration-ID deduplication, `deletingIds` and epoch-fenced `401`/reconciliation state updates, stdlib `SottoApi` hardening behind `RemoteServer` (HTTPS endpoint hostname verification and prompt socket/stream closing on `executeRawSocket`, cancellable I/O handles, and tested `HttpURLConnection` `downloadTo` fallback), off-main `upload()` audio existence checks on `ioDispatcher`, retained server narration state (`Idle`, `Submitting`, `Polling`, `Completed`, `Failed`, `requestIdOrNull`) where new `narrateOnServer()` calls cancel any superseded active job and allocate a fresh `requestId`, and migrated `SottoActivity` callers using `collectAsStateWithLifecycle(..., context = Dispatchers.Main.immediate)` and a `heightIn(min = 48.dp)` Confirm server-narration switch row across configuration changes and `recreate()`. Verified with `JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug assembleLocalDebugAndroidTest assembleSyncDebugAndroidTest assembleLocalRelease assembleSyncRelease -Proborazzi.record=false -Proborazzi.verify=true --no-daemon` (0 lint errors; `local`: 111/111 unit tests across 13 suites; `sync`: 141/141 unit tests across 16 suites including `SottoApiContractTest` 9, `SyncCoordinatorTest` 15, `SyncUiTest` 6; debug, `androidTest`, and release APKs built) and `aapt` manifest permission guards (`local` has no `INTERNET`/`ACCESS_NETWORK_STATE`; `sync` adds `INTERNET` only). Connected emulator/hardware instrumentation did not run (`adb devices -l` empty; `emulator -accel-check` exited `11` due to `/dev/kvm` permissions).
 
 2026-11-14: Issue #22 consolidates durable ordinary and gate execution in

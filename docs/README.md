@@ -45,7 +45,9 @@ Paths are relative to `app/src/main/kotlin/page/stephens/sotto/`.
 | Oration rows, queue order, recovery, and migration | `engine/store/Db.kt` |
 | Audio append, truncate, and fsync | `engine/store/FileAudioSink.kt` |
 | Manual process-wide wiring and managed production model | `shell/service/NarrationCoordinatorProvider.kt` |
-| Android media owner, listen-now, governor, and sleep timer | `shell/service/NarrationService.kt` |
+| Android media resources, attachment, and command delegation | `shell/service/NarrationService.kt` |
+| Oration playback selection, listen-now, catch-up, deletion, sleep, and close | `shell/playback/OrationPlayback.kt`, `shell/playback/SavedOrationPlayback.kt` |
+| Media3 output and application-scoped position FIFO | `shell/playback/PlaybackOutput.kt`, `shell/playback/PlaybackPersistence.kt` |
 | Non-exported in-app command routing | `shell/service/InAppNarrationService.kt` |
 | Typed Lab requests and measurements | `engine/narrate/Diagnostics.kt`, `engine/narrate/DiagnosticExecution.kt`, `spike/MainActivity.kt` |
 
@@ -57,6 +59,10 @@ Issue #22 consolidates their durable execution behind an internal operation;
 `DiagnosticExecution` keeps gate presentation and measurement. Read the
 architecture overview for its injected-clock policy and the attached-command
 contract tests before following its persistence implementation.
+Issue #26 keeps Oration playback inside the Android media owner behind domain
+commands. Start with `OrationPlaybackTest` for selection, transport preservation,
+deletion, sleep, and asynchronous close; `NarrationCommandsTest` retains actual
+Media3 and non-exported command-entry coverage.
 
 ## Deliberately skipped
 

@@ -1,7 +1,21 @@
 # Tasks - sotto-android (living)
 
 Status: release hardware gates remain; ordinary/Lab narration and opt-in sync
-coordination share retained process-wide ownership (issues #15-16, #24). Updated 2026-11-15.
+coordination share retained process-wide ownership (issues #15-16, #24). Updated 2026-11-16.
+
+## Oration playback (issue #26)
+
+- [x] Delegate playback policy from the Android media owner to one domain
+      interface and a narrow Media3 output adapter; retain resource lifetime
+- [x] Order explicit/listen-now selection, durable-growth refresh, coherent
+      positions, synchronous deletion, reusable gates, sleep, and close
+- [x] Share deletion-fenced application-only FIFO positions across replacement
+      owners, with asynchronous close completion and no main-thread join
+- [x] Cover the caller interface with controlled scheduling and real Room/files;
+      retain real Media3, Lab reset, durability, and sync timestamp coverage
+- [ ] Update governing docs and validate both flavors, lint, screenshots with
+      recording disabled, manifest guards, instrumentation or concrete blocker,
+      and independent Standards/Spec review
 
 ## Opt-in sync deepening (issue #24)
 
