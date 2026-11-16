@@ -51,7 +51,9 @@ class OrationPlaybackTest {
     fun tearDown() {
         owners.forEach { it.close() }
         flush()
-        persistence.shutdownForTest()
+        val shutdown = persistence.shutdownForTest()
+        writes.runAll()
+        assertTrue(shutdown.isCompleted)
         db.close()
         root.deleteRecursively()
     }
@@ -484,6 +486,68 @@ class OrationPlaybackTest {
         assertTrue(drained.isCompleted)
         assertTrue(ShadowLog.getLogsForTag("OrationPlayback").any { it.msg == "Saved audio lookup failed" })
         assertTrue(ShadowLog.getLogsForTag("OrationPlayback").any { it.msg == "Playback persistence failed" })
+    }
+
+    @Test
+    fun `returning to an Oration restores its last accepted position before queued writes drain`() {
+        seed("a", position = 100)
+        seed("b", position = 2000)
+        val playback = owner()
+        playback.play("a")
+        flush()
+        output.state = output.state.copy(positionMs = 1100)
+        playback.play("b")
+        storage.runAll()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("b", output.state.id)
+        // A's 1100 ms observation is accepted, but its FIFO write is held.
+        playback.play("a")
+        storage.runAll()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("a", output.state.id)
+        assertEquals(1100L, output.state.positionMs)
+    }
+
+    @Test
+    fun `switching back restores the accepted position before writes drain`() {
+        seed("a")
+        seed("b")
+        val playback = owner()
+        playback.play("a")
+        flush()
+        output.state = output.state.copy(positionMs = 4200)
+
+        playback.play("b")
+        storage.runAll()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("b", output.state.id)
+        // A's switch observation is accepted, but its FIFO write is held.
+        assertEquals(0L, db.orations().byId("a")!!.playheadMs)
+
+        playback.play("a")
+        storage.runAll()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("a", output.state.id)
+        assertEquals(4200L, output.state.positionMs)
+    }
+
+    @Test
+    fun `a replacement restores the final accepted position before writes drain`() {
+        seed("a")
+        val first = owner()
+        first.play("a")
+        flush()
+        output.state = output.state.copy(positionMs = 5000)
+        val firstDrained = first.close()
+        assertFalse(firstDrained.isCompleted)
+
+        val replacementOutput = ControlledOutput()
+        val replacement = owner(replacementOutput)
+        replacement.play("a")
+        storage.runAll()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals("a", replacementOutput.state.id)
+        assertEquals(5000L, replacementOutput.state.positionMs)
     }
 
     private fun grow(id: String, bytes: Long) {

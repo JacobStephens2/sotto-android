@@ -67,7 +67,7 @@ internal class SavedOrationPlayback(
             val player = output ?: return@launch
             val current = player.snapshot()
             observe(current)
-            player.replace(saved.audio, saved.positionMs, current.speed, true)
+            player.replace(saved.audio, persistence.resumePosition(id, saved.positionMs), current.speed, true)
             selected = saved.audio
         }
     }

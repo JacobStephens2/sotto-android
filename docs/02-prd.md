@@ -38,7 +38,8 @@ Deletion clears matching playback before removal and fences stale reads/writes;
 a recreated gate remains playable. Sleep replacement/cancel and owner close
 fence pending deadlines; an accepted pause is logged locally. Listening positions
 retain identity and FIFO ordering across owner replacement without changing
-sync modification timestamps.
+sync modification timestamps. Returning to an Oration or replacing its owner
+restores the latest accepted position even while its storage write is pending.
 
 - Media3 session: lock-screen and notification controls, headphone buttons,
   15-second skip both directions, play/pause.

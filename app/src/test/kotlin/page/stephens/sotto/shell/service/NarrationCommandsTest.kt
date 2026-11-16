@@ -47,7 +47,7 @@ class NarrationCommandsTest {
     fun tearDown() {
         inApp?.destroy()
         narration?.destroy()
-        val playbackDrained = PlaybackPersistence.drainForTest()
+        val playbackDrained = PlaybackPersistence.shutdownSharedForTest()
         await { playbackDrained?.isCompleted != false }
         assertTrue(playbackDrained?.isCompleted != false)
         NarrationService.clearInAppForTest()

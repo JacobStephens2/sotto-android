@@ -13,7 +13,7 @@ coordination share retained process-wide ownership (issues #15-16, #24). Updated
       owners, with asynchronous close completion and no main-thread join
 - [x] Cover the caller interface with controlled scheduling and real Room/files;
       retain real Media3, Lab reset, durability, and sync timestamp coverage
-- [ ] Update governing docs and validate both flavors, lint, screenshots with
+- [x] Update governing docs and validate both flavors, lint, screenshots with
       recording disabled, manifest guards, instrumentation or concrete blocker,
       and independent Standards/Spec review
 

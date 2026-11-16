@@ -114,6 +114,8 @@ and growing audio including the final tail, current pause/seek/speed, deletion
 and gate recreation, queued deadline replacement/cancel, close with pending work,
 and FIFO positions across replacement owners. Assert output effects, saved
 positions/logs, and drain completion rather than private epochs, jobs, or queues.
+Hold accepted writes across a return to the previous Oration and owner
+replacement; selection must restore the latest accepted position before drain.
 Keep actual Media3 command-entry, sleep, exported rejection, deletion, and Lab
 reset checks alongside these contracts, and independent durability/sync tests.
 `DiagnosticResumeTest` exercises Room, real ADTS encoding, shared gate ownership,

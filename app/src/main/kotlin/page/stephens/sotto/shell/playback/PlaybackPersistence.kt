@@ -25,6 +25,7 @@ internal class PlaybackPersistence(
     }
 
     private val epochs = ConcurrentHashMap<String, Long>()
+    private val latestPositions = ConcurrentHashMap<String, Write.Position>()
     private val queue = Channel<Write>(Channel.UNLIMITED)
     private val worker = CoroutineScope(SupervisorJob() + dispatcher).launch {
         for (write in queue) {
@@ -48,12 +49,25 @@ internal class PlaybackPersistence(
 
     fun epoch(id: String): Long = epochs[id] ?: 0L
 
-    fun invalidate(id: String) { epochs.compute(id) { _, previous -> (previous ?: 0L) + 1 } }
+    fun invalidate(id: String) {
+        epochs.compute(id) { _, previous -> (previous ?: 0L) + 1 }
+        latestPositions.remove(id)
+    }
 
     fun observe(snapshot: PlaybackSnapshot) {
         val id = snapshot.id ?: return
-        if (snapshot.positionMs > 0) enqueue(Write.Position(id, snapshot.positionMs, epoch(id)))
+        if (snapshot.positionMs > 0) {
+            val position = Write.Position(id, snapshot.positionMs, epoch(id))
+            latestPositions[id] = position
+            enqueue(position)
+        }
     }
+
+    // A selection can arrive before Room receives an accepted switch/close
+    // observation. Keep primitive observations available across owners, even
+    // across a read racing the write's commit; deletion forgets the old position.
+    fun resumePosition(id: String, savedPositionMs: Long): Long = latestPositions[id]
+        ?.takeIf { it.deletionEpoch == epoch(id) }?.positionMs ?: savedPositionMs
 
     fun sleepAccepted(minutes: Int) { enqueue(Write.Sleep(minutes)) }
 
@@ -73,6 +87,8 @@ internal class PlaybackPersistence(
             shared ?: PlaybackPersistence(db).also { shared = it }
         }
 
-        internal fun drainForTest(): Deferred<Unit>? = shared?.drain()
+        internal fun shutdownSharedForTest(): kotlinx.coroutines.Job? = synchronized(this) {
+            shared?.shutdownForTest().also { shared = null }
+        }
     }
 }

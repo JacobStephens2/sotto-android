@@ -117,6 +117,9 @@ share sheet / file open / paste
   A private application-scoped FIFO accepts immutable positive-position
   observations, including close, across replacement owners. Each write checks
   its deletion epoch inside a Room transaction and preserves `updatedAt`.
+  Latest accepted primitive positions also supply selection while Room writes
+  drain, so switching back or replacing an owner cannot restore a stale position.
+  Deletion forgets those positions along with advancing the epoch.
   Close synchronously fences effects and releases the output, then returns an
   awaitable FIFO drain without joining on the player thread. Accepted sleep
   deadlines pause once and enqueue a local log off-main; replacement, cancel,
