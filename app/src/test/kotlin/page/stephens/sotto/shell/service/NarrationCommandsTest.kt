@@ -31,6 +31,7 @@ import org.robolectric.android.controller.ServiceController
 import org.robolectric.shadows.ShadowToast
 import page.stephens.sotto.engine.store.OrationEntity
 import page.stephens.sotto.engine.store.SottoDatabase
+import page.stephens.sotto.shell.playback.PlaybackPersistence
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -46,6 +47,9 @@ class NarrationCommandsTest {
     fun tearDown() {
         inApp?.destroy()
         narration?.destroy()
+        val playbackDrained = PlaybackPersistence.shutdownSharedForTest()
+        await { playbackDrained?.isCompleted != false }
+        assertTrue(playbackDrained?.isCompleted != false)
         NarrationService.clearInAppForTest()
         val drained = NarrationCoordinatorProvider.shutdownForTest()
         await { drained?.isCompleted != false }

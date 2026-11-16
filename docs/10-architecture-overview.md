@@ -19,7 +19,7 @@ share sheet / file open / paste
 │    │     admission → one retained process-wide execution lane     │
 │    │     └── OrationNarration → NarrationEngine → model → encoder │
 │    │           └── fsync audio → persist progress → durable event │
-│    └── Media3 ExoPlayer ← plays the growing ADTS audio file        │
+│    └── OrationPlayback → Media3 output → owned ExoPlayer          │
 │  Lab → typed diagnostics → same NarrationCoordinator lane        │
 │  Room DB: orations · chunks-progress · joblog · settings           │
 │  Files (app-private): orations/<id>/audio + source.md              │
@@ -100,15 +100,31 @@ share sheet / file open / paste
   those to `NarrationService` inside the process. Another app cannot start it.
   Ordinary narration commands delegate to the attached narrator; rejected
   admission and diagnostic-only results remain observable to the caller.
-- **Playback and listen-now** - ExoPlayer, MediaSession transport, the sleep
-  timer, and playhead governor stay in the media owner. Listen-now follows a
-  first-durable-audio event after fsync and saved progress, with attachment/run
-  fencing. The governor persists the playhead and re-resolves a growing file
-  when playback reaches its current end ("catching up"). Deletion invokes a
-  narrow callback to stop matching playback on the player's thread. Observable
-  deletion facts block playback until removal finishes; per-ID deletion versions
-  fence pending reads from the removed audio. Explicit playback can use a newly
-  created reserved gate in the same media-owner lifetime.
+- **Oration playback** - one module inside the media owner accepts explicit
+  `play(id)`, saved-row `listenNow`, `stopForDeletion(id)`, `sleep(minutes)`, and
+  `close()`. The service still constructs/releases ExoPlayer and MediaSession;
+  a narrow Media3 output adapter observes identity, position, ended state,
+  intent, and speed together on the player thread. The module owns the two-second
+  governor, selection ordering, durable-byte frontier, deletion epochs, and
+  timer tokens. Room reads and file checks happen off-main. Latest explicit
+  acceptance wins, even if unavailable; listen-now needs neither a selection
+  nor a pending explicit request. Expected missing/server-only/empty audio
+  leaves existing media intact. Ended audio reloads only for durable growth,
+  including the worker's final tail, preserving current position, speed, and
+  pause intent after revalidation; a seek away from the frontier wins.
+  Deletion synchronously fences pending work and clears matching media; facts
+  prevent admission during removal while epochs allow later gate recreation.
+  A private application-scoped FIFO accepts immutable positive-position
+  observations, including close, across replacement owners. Each write checks
+  its deletion epoch inside a Room transaction and preserves `updatedAt`.
+  Latest accepted primitive positions also supply selection while Room writes
+  drain, so switching back or replacing an owner cannot restore a stale position.
+  Deletion forgets those positions along with advancing the epoch.
+  Close synchronously fences effects and releases the output, then returns an
+  awaitable FIFO drain without joining on the player thread. Accepted sleep
+  deadlines pause once and enqueue a local log off-main; replacement, cancel,
+  and close invalidate unaccepted deadlines. Storage failures are contained
+  and locally logged. No playback responsibility moves into the Narration worker.
 - **Lab** - attaches to the same coordinator with typed gate, measurement,
   thread configuration, Stop, and reset requests. It displays Busy when ordinary
   work is active or queued. Lab retains controls, PCM playback, progress, and
