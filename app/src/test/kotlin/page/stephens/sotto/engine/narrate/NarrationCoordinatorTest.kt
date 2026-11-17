@@ -280,7 +280,13 @@ class NarrationCoordinatorTest {
         assertEquals(1, models.get())
         release.countDown()
         awaitStatus("gate", "COMPLETE")
-        callbackDispatcher.flush()
+        // The completed row/log precedes enqueueing the diagnostic verdict.
+        withTimeout(5_000) {
+            while (events.none { it is DiagnosticEvent.Line && it.text.startsWith("GATE COMPLETE") }) {
+                callbackDispatcher.flush()
+                kotlinx.coroutines.yield()
+            }
+        }
         assertFalse(events.any { it is DiagnosticEvent.Audio || it is DiagnosticEvent.Measured })
         assertTrue(events.any { it is DiagnosticEvent.Line && it.text.startsWith("GATE COMPLETE") })
         assertEquals(1, maximumModels.get())

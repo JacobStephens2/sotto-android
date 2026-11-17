@@ -102,6 +102,8 @@ drain with callbacks queued, thread reload,
 diagnostic Stop/supersession, Lab detach, media-owner replacement during a gate,
 saved source, and legacy checkpoint recovery. Controlled adapters assert one
 model/generate lifetime, no premature release/mutation, and no late callback.
+Diagnostic verdict tests await callback delivery separately from completed Room
+facts because verdict enqueueing follows lifecycle persistence.
 Measurement tests use fixed clock/battery/thermal/memory observations and known
 arithmetic. Keep independent `NarrationEngine` durability/resume tests.
 `NarrationCoordinatorTest` also distinguishes the execution clock from wall

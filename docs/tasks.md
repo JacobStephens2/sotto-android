@@ -17,9 +17,9 @@ Oration publication shares final-file ownership (issue #28). Updated 2026-11-17.
 - [x] Cover partial file operations, log rejection, deletion/sweep orderings,
       same-ID recreation, and the account-replacement race with real Room/files
 - [x] Update glossary, ADR-010, architecture/data/testing/coding/reading guidance
-- [ ] Validate both flavors' JVM suites and lint with screenshot verification,
+- [x] Validate both flavors' JVM suites and lint with screenshot verification,
       manifest guards, retained instrumentation or concrete environment blocker
-- [ ] Complete independent Standards and Spec review and publish ready PR
+- [x] Complete independent Standards and Spec review and prepare ready PR
 
 ## Oration playback (issue #26)
 

@@ -31,7 +31,37 @@ Existing creation/gate, attached commands, durability/resume, transport, and
 sync caller suites remain. No schema, permissions, text pipeline, model, or
 performance claims changed.
 
-Final validation and independent review results are recorded below when complete.
+Final validation passed with screenshot recording disabled and verification
+enabled:
+
+```sh
+PATH=/home/jacob/.local/jdk/jdk-21.0.12.1+1/bin:$PATH JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug assembleLocalDebugAndroidTest -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+The local JVM suite passed 150 tests across 15 suites; sync passed 182 tests
+across 18 suites, with no skips or failures. Both lint tasks reported zero errors. Debug
+APKs for both flavors and the local instrumentation APK built. APK `aapt dump
+permissions` checks passed against the CI allowlist: local has no network
+permissions, sync adds only INTERNET, and neither has ACCESS_NETWORK_STATE.
+
+The initial full sync run passed 179 tests and failed its existing TLS test
+because `keytool` was absent from PATH. Adding the documented JDK's bin directory
+fixed that environment issue. A later local run exposed a diagnostic-supersession
+test wait race: the completed row/log can precede enqueueing `GATE COMPLETE`.
+The exact focused command failed at its verdict assertion before the correction
+and passed afterward:
+
+```sh
+PATH=/home/jacob/.local/jdk/jdk-21.0.12.1+1/bin:$PATH JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew testLocalDebugUnitTest --tests '*NarrationCoordinatorTest.superseding a diagnostic fences*' -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+That test now awaits actual verdict delivery while retaining every stale-callback
+assertion; production diagnostic behavior is unchanged. Independent Standards
+and Spec review against `refs/remotes/origin/master` at
+`82174c38fc9c50fb53995ef74139322982056e77` reported zero actionable findings on
+each axis, with every changed file read and no generated-output exclusions.
+Reports and counts are in `.thirdshift-review-CLQuaC/` for the session trace.
+
 Initial host setup required the documented local JDK and `tools/fetch-third-party.sh`
 to stage the fresh worktree's ignored build dependencies. The external prose
 guide `/var/www/Android2/Writing_Style_Guide_Unified.md` is absent on this host;
@@ -387,6 +417,8 @@ Updated: 2026-10-15
 - In-app narration commands only on a non-exported service (ADR-008)
 - Retained process coordinator for ordinary and diagnostic narration; Android
   media ownership and off-main teardown drain (ADR-009).
+- Process-scoped Oration publication owns final source/audio, matching Room
+  facts, pre-commit rollback, row-first removal, and orphan reclamation (ADR-010).
 - `local` flavor = no INTERNET, flagship claim (ADR-004); `sync` flavor =
   opt-in sotto-server account/library sync (ADR-007, contract in
   12-api-contract.md)
