@@ -3,7 +3,7 @@ package page.stephens.sotto.engine.narrate
 import page.stephens.sotto.engine.store.FileAudioSink
 import page.stephens.sotto.engine.store.GatePreparation
 import page.stephens.sotto.engine.store.JobLog
-import page.stephens.sotto.engine.store.OrationCreation
+import page.stephens.sotto.engine.store.OrationPublication
 import page.stephens.sotto.engine.store.OrationEntity
 import page.stephens.sotto.engine.store.RoomProgressStore
 import page.stephens.sotto.engine.store.SottoDatabase
@@ -36,7 +36,7 @@ internal sealed interface OrationNarrationOutcome {
 internal class OrationNarration(
     private val db: SottoDatabase,
     private val root: File,
-    private val creation: OrationCreation,
+    private val publication: OrationPublication,
     private val encoderFactory: (Int) -> PcmEncoder,
     private val clock: () -> Long,
 ) {
@@ -61,7 +61,7 @@ internal class OrationNarration(
                     saved
                 }
                 is OrationNarrationRequest.Gate -> {
-                    val prepared = when (val result = creation.prepareGate(request.bundledText)) {
+                    val prepared = when (val result = publication.prepareGate(request.bundledText)) {
                         is GatePreparation.Ready -> result
                         is GatePreparation.StorageFailure -> return OrationNarrationOutcome.Failed(result.cause)
                     }

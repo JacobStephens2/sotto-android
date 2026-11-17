@@ -9,6 +9,7 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -21,13 +22,19 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import page.stephens.sotto.engine.narrate.NarrationFacts
-import page.stephens.sotto.engine.store.OrationCreation
+import page.stephens.sotto.engine.store.OrationPublication
+import page.stephens.sotto.engine.store.DurableSourcePublisher
+import page.stephens.sotto.engine.store.DurableStagedFilePublisher
+import page.stephens.sotto.engine.store.StagedFilePublisher
 import page.stephens.sotto.engine.store.OrationEntity
 import page.stephens.sotto.engine.store.SottoDatabase
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -42,6 +49,7 @@ class SyncCoordinatorTest {
     private val coordinators = mutableListOf<RealSyncCoordinator>()
     private var nowMs = 1_000_000L
     private val nextId = AtomicInteger(1)
+    private lateinit var publication: OrationPublication
 
     @Before
     fun setUp() {
@@ -50,6 +58,7 @@ class SyncCoordinatorTest {
             SottoDatabase::class.java,
         ).allowMainThreadQueries().build()
         filesDir = Files.createTempDirectory("sotto-sync-coord").toFile()
+        publication = OrationPublication(db, File(filesDir, "orations"))
         narrationFacts = MutableStateFlow(NarrationFacts())
         store = InMemoryCredentialStore()
         server = FakeRemoteServer()
@@ -74,6 +83,7 @@ class SyncCoordinatorTest {
         api = server,
         credentials = store,
         narrationFacts = narrationFacts,
+        publication = publication,
         ioDispatcher = Dispatchers.IO,
         clock = { nowMs },
         idGenerator = { "id-${nextId.getAndIncrement()}" },
@@ -377,6 +387,102 @@ class SyncCoordinatorTest {
     }
 
     @Test
+    fun `account replacement waits for old publication rollback and keeps newer successful bytes`() = runBlocking {
+        val placed = CountDownLatch(1)
+        val releasePlacement = CountDownLatch(1)
+        val roomHeld = CountDownLatch(1)
+        val releaseRoom = CountDownLatch(1)
+        val promotions = AtomicInteger()
+        publication = OrationPublication(db, File(filesDir, "orations"), DurableSourcePublisher,
+            stagedFiles = object : StagedFilePublisher by DurableStagedFilePublisher {
+                override fun promote(staged: File, target: File) {
+                    DurableStagedFilePublisher.promote(staged, target)
+                    if (target.name == "audio.aac" && promotions.incrementAndGet() == 1) {
+                        placed.countDown()
+                        check(releasePlacement.await(10, TimeUnit.SECONDS))
+                    }
+                }
+            })
+        val coord = buildCoordinator()
+        coord.awaitInitialized()
+        assertTrue(coord.connect("http://s", "old@example.com", "pw").isSuccess)
+        val row = OrationEntity(
+            "replacement", "Essay", "COMPLETE", "af_heart", 10, null,
+            createdAt = 1, updatedAt = 2, serverName = "essay.aac", downloaded = false,
+        )
+        db.orations().insert(row)
+        val transfers = AtomicInteger()
+        server.onDownloadAudio = { _, dest ->
+            dest.parentFile!!.mkdirs()
+            dest.writeText(if (transfers.incrementAndGet() == 1) "old bytes" else "new bytes")
+        }
+        val pool = Executors.newSingleThreadExecutor()
+        try {
+            val old = async(Dispatchers.Default) { coord.download(row) }
+            assertTrue(placed.await(5, TimeUnit.SECONDS))
+            assertEquals("old bytes", File(filesDir, "orations/replacement/audio.aac").readText())
+            val held = pool.submit {
+                db.runInTransaction {
+                    roomHeld.countDown()
+                    check(releaseRoom.await(10, TimeUnit.SECONDS))
+                }
+            }
+            assertTrue(roomHeld.await(5, TimeUnit.SECONDS))
+            val reconnect = async(Dispatchers.Default) { coord.connect("http://s", "new@example.com", "pw") }
+            withTimeout(5_000) { coord.state.first { it.accountEmail == "new@example.com" } }
+            val newer = async(Dispatchers.Default) { coord.download(row) }
+            withTimeout(5_000) { coord.state.first { "replacement" in it.activeDownloads } }
+            assertFalse(newer.isCompleted)
+            assertFalse(old.isCompleted)
+            releasePlacement.countDown()
+            releaseRoom.countDown()
+            held.get(5, TimeUnit.SECONDS)
+            assertTrue(withTimeout(5_000) { old.await() }.isFailure)
+            assertTrue(withTimeout(5_000) { reconnect.await() }.isSuccess)
+            assertTrue(withTimeout(5_000) { newer.await() }.isSuccess)
+            assertEquals("new bytes", File(filesDir, "orations/replacement/audio.aac").readText())
+            assertEquals(row.copy(downloaded = true, audioBytes = 9), db.orations().byId(row.id))
+            assertEquals(1, db.joblog().count(row.id, "downloaded"))
+            assertEquals(listOf("audio.aac"), File(filesDir, "orations/replacement").list()!!.toList())
+            assertEquals(2, transfers.get())
+        } finally {
+            releasePlacement.countDown()
+            releaseRoom.countDown()
+            pool.shutdown()
+            assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test
+    fun `stale download snapshot preserves already available bytes without transfer`() = runBlocking {
+        val coord = buildCoordinator()
+        coord.awaitInitialized()
+        assertTrue(coord.connect("http://s", "a@example.com", "pw").isSuccess)
+        val snapshot = OrationEntity(
+            "available", "Saved", "COMPLETE", "af_heart", 10, null,
+            audioBytes = 90, createdAt = 1, updatedAt = 2,
+            serverName = "saved.aac", downloaded = false,
+        )
+        val current = snapshot.copy(downloaded = true, audioBytes = 4)
+        db.orations().insert(current)
+        val audio = File(filesDir, "orations/available/audio.aac")
+        audio.parentFile!!.mkdirs()
+        audio.writeText("kept")
+        val calls = AtomicInteger()
+        server.onDownloadAudio = { _, dest ->
+            calls.incrementAndGet()
+            dest.parentFile!!.mkdirs()
+            dest.writeText("replacement")
+        }
+
+        assertTrue(coord.download(snapshot).isSuccess)
+        assertEquals("kept", audio.readText())
+        assertEquals(current, db.orations().byId("available"))
+        assertEquals(0, calls.get())
+        assertEquals(0, db.joblog().count("available", "downloaded"))
+    }
+
+    @Test
     fun `download stages outside orations across sweepOrphans, tolerates 404 text, and dedupes`() = runBlocking {
         val coord = buildCoordinator()
         coord.awaitInitialized()
@@ -397,7 +503,6 @@ class SyncCoordinatorTest {
             downloaded = false,
         )
         db.orations().insert(row)
-        val creation = OrationCreation(db, File(filesDir, "orations"))
 
         val dlStarted = CompletableDeferred<Unit>()
         val releaseDl = CompletableDeferred<Unit>()
@@ -415,8 +520,8 @@ class SyncCoordinatorTest {
         val first = async { coord.download(row) }
         dlStarted.await()
         val duplicate = async { coord.download(row) }
-        // OrationCreation.sweepOrphans must NOT disturb active staging!
-        creation.sweepOrphans()
+        // OrationPublication.sweepOrphans must NOT disturb active staging!
+        publication.sweepOrphans()
         releaseDl.complete(Unit)
 
         assertTrue(first.await().isSuccess)
@@ -749,6 +854,7 @@ class SyncCoordinatorTest {
             api = server,
             credentials = store,
             narrationFacts = narrationFacts,
+            publication = publication,
             ioDispatcher = worker,
             clock = { nowMs },
             idGenerator = { "id-${nextId.getAndIncrement()}" },

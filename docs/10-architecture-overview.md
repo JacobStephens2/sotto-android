@@ -29,7 +29,7 @@ share sheet / file open / paste
             `sync` flavor wires SyncFactory in src/sync only (ADR-007):
             SyncCoordinator (shell/sync) ──▶ RemoteServer / SottoApi (/api/v1)
             ├── single-flight library sync + LWW rename · CredentialStore
-            ├── external sync-staging/ + Room commits · deletingIds abort
+            ├── external sync-staging/ → Oration publication · deletingIds abort
             └── retained ServerNarrationState poll (Confirm · Library · Account)
 ```
 
@@ -41,7 +41,7 @@ share sheet / file open / paste
   (1,000-char sentence-boundary chunks). Deterministic, validated against test
   vectors generated from the Python originals. These two functions are the
   shared-DNA between the server and this app; the test vectors are the contract.
-- **OrationCreation** - ordinary creation, gate preparation, and startup orphan
+- **Oration publication** (`OrationPublication`, ADR-010) - ordinary creation, gate preparation, and startup orphan
   sweeping share one manually wired process instance. Its private monitor covers
   directory preparation, same-directory pending source write/fsync/close/rename,
   and the Room transaction publishing the row and created log. Sweeping classifies
@@ -49,7 +49,18 @@ share sheet / file open / paste
   and storage failures return typed results; rollback removes only preparation
   owned by that attempt, best effort. Saved gate source wins; explicit legacy
   repair retains the row, audio, checkpoint, narration time, and existing log.
-  No model construction, inference, encoding, or chunk writes hold this monitor.
+  Download preparation rereads server-only rows and returns opaque attempts with
+  creation identity, server name, and removal generation. Finalization revalidates
+  those facts, availability, and sync's synchronous caller-validity predicate
+  before final-file mutation and inside its downloaded-row/log transaction.
+  Unique backups preserve preceding audio/source; ownership is registered before
+  possibly partial promotion. Pre-commit rollback restores files while holding
+  the monitor; committed files survive cancellation and best-effort cleanup.
+  Removal advances the generation first, deletes the row before the directory,
+  and logs success/error. All production paths share the provider's instance.
+  No network transfer, model construction, inference, encoding, or chunk writes
+  hold this monitor. Enter off-main outside Room and the sync lock; ordering is
+  publication monitor, Room, then a brief validity read under the sync lock.
 - **NarrationCoordinator** - owns ordinary queue admission, run identity,
   cooperative Stop, deletion barriers, outcome persistence, and pickup. It is
   retained once per process and manually wired by the shell. An attached
@@ -157,8 +168,9 @@ share sheet / file open / paste
   monotonic session epochs (cancelling child scope and active sockets on
   off-main `disconnect()` or matching-epoch `401`), external staging in
   `filesDir/sync-staging/` outside `orations/` (swept at startup so
-  `OrationCreation.sweepOrphans()` never disturbs live transfers), active
-  `deletingIds` cancellation plus 0-row commit rollback, ID-based download and
+  `OrationPublication.sweepOrphans()` never disturbs live transfers), active
+  `deletingIds` cancellation, finalization through shared Oration publication,
+  ID-based download and
   upload deduplication, and retained `ServerNarrationState` polling live behind
   `SyncCoordinator` across Activity recreation.
 
@@ -217,7 +229,8 @@ supplied bundle only on an explicit Lab request. Saved source wins on resume.
 
 Deletion fences admission for its ID, stops matching playback, requests Stop,
 and waits for the matching ordinary or diagnostic writer off-main. It removes the Room row before the
-directory, reports completion after removal, and logs the result; startup
+directory through Oration publication, reports completion after removal and its
+log, and logs failures; startup
 retries orphan-directory cleanup. Gate reset uses the same drain and deletion
 barrier, retaining the log. Playback of existing durable audio
 remains independent of queue ownership.

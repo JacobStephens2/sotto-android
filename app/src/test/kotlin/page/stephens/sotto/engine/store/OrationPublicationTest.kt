@@ -23,11 +23,11 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
-class OrationCreationTest {
+class OrationPublicationTest {
     private val db = Room.inMemoryDatabaseBuilder(
         ApplicationProvider.getApplicationContext<Context>(), SottoDatabase::class.java,
     ).allowMainThreadQueries().build()
-    private val root = Files.createTempDirectory("oration-creation").toFile()
+    private val root = Files.createTempDirectory("oration-publication").toFile()
 
     @After
     fun close() {
@@ -37,7 +37,7 @@ class OrationCreationTest {
 
     @Test
     fun `ordinary creation publishes source before its queued row and created log`() {
-        val creation = OrationCreation(db, root, SourcePublisher { pending, source, text ->
+        val publication = OrationPublication(db, root, SourcePublisher { pending, source, text ->
             assertTrue(db.orations().all().isEmpty())
             assertTrue(db.joblog().recent().isEmpty())
             DurableSourcePublisher.publish(pending, source, text)
@@ -47,7 +47,7 @@ class OrationCreationTest {
         }, nextId = { "ordinary" }, clock = { 42L })
 
         assertEquals(CreationResult.Created("ordinary"),
-            creation.create("  # Hello\n\nA saved document.  ", "Chosen title", "bf_emma"))
+            publication.create("  # Hello\n\nA saved document.  ", "Chosen title", "bf_emma"))
         val row = db.orations().byId("ordinary")!!
         assertEquals("Chosen title", row.title)
         assertEquals("bf_emma", row.voiceId)
@@ -56,7 +56,7 @@ class OrationCreationTest {
         assertEquals(42L, row.queuedAt)
         assertEquals(1, db.joblog().count("ordinary", "created"))
         assertEquals("voice=bf_emma", db.joblog().recent().single().detail)
-        creation.sweepOrphans()
+        publication.sweepOrphans()
         assertEquals("# Hello\n\nA saved document.", File(root, "ordinary/source.md").readText())
     }
 
@@ -67,18 +67,18 @@ class OrationCreationTest {
         val sweeping = CountDownLatch(1)
         val swept = CountDownLatch(1)
         val pool = Executors.newFixedThreadPool(2)
-        val creation = OrationCreation(db, root, SourcePublisher { pending, source, text ->
+        val publication = OrationPublication(db, root, SourcePublisher { pending, source, text ->
             DurableSourcePublisher.publish(pending, source, text)
             published.countDown()
             check(release.await(10, TimeUnit.SECONDS))
         }, nextId = { "live" })
         try {
-            val saving = pool.submit<CreationResult> { creation.create("A live document.", "Live", "af_heart") }
+            val saving = pool.submit<CreationResult> { publication.create("A live document.", "Live", "af_heart") }
             assertTrue(published.await(5, TimeUnit.SECONDS))
             assertTrue(db.orations().all().isEmpty())
             val cleanup = pool.submit {
                 sweeping.countDown()
-                creation.sweepOrphans()
+                publication.sweepOrphans()
                 swept.countDown()
             }
             assertTrue(sweeping.await(5, TimeUnit.SECONDS))
@@ -98,7 +98,7 @@ class OrationCreationTest {
                 }
             }, { object : PcmEncoder {
                 override fun encode(samples: FloatArray) = byteArrayOf(1, 2, 3)
-            } }, callbackDispatcher = Dispatchers.Unconfined, creation = creation)
+            } }, callbackDispatcher = Dispatchers.Unconfined, publication = publication)
             try {
                 worker.attach().narrate("live").await()
                 withTimeout(5_000) {
@@ -118,10 +118,10 @@ class OrationCreationTest {
 
     @Test
     fun `invalid ordinary input leaves no preparation or metadata`() {
-        val creation = OrationCreation(db, root)
-        assertEquals(CreationResult.Empty, creation.create(" \n ", "Empty", "af_heart"))
+        val publication = OrationPublication(db, root)
+        assertEquals(CreationResult.Empty, publication.create(" \n ", "Empty", "af_heart"))
         val oversized = "a".repeat(409601)
-        assertEquals(CreationResult.TooLarge(409601), creation.create(oversized, "Large", "af_heart"))
+        assertEquals(CreationResult.TooLarge(409601), publication.create(oversized, "Large", "af_heart"))
         assertTrue(root.listFiles()!!.isEmpty())
         assertTrue(db.orations().all().isEmpty())
         assertTrue(db.joblog().recent().isEmpty())
@@ -131,12 +131,12 @@ class OrationCreationTest {
     fun `source faults before and after rename roll back only the new preparation`() {
         val retained = seedGate()
         for (afterRename in listOf(false, true)) {
-            val creation = OrationCreation(db, root, SourcePublisher { pending, source, text ->
+            val publication = OrationPublication(db, root, SourcePublisher { pending, source, text ->
                 if (afterRename) DurableSourcePublisher.publish(pending, source, text)
                 else pending.writeText("partial source")
                 throw IOException("storage failed")
             }, nextId = { "failed" })
-            assertTrue(creation.create("New source", "New", "af_heart") is CreationResult.StorageFailure)
+            assertTrue(publication.create("New source", "New", "af_heart") is CreationResult.StorageFailure)
             assertNull(db.orations().byId("failed"))
             assertEquals(0, db.joblog().count("failed", "created"))
             assertFalse(File(root, "failed").exists())
@@ -152,8 +152,8 @@ class OrationCreationTest {
         db.openHelper.writableDatabase.execSQL(
             "CREATE TRIGGER reject_created BEFORE INSERT ON joblog BEGIN SELECT RAISE(ABORT, 'log unavailable'); END",
         )
-        val creation = OrationCreation(db, root, DurableSourcePublisher, nextId = { "failed" })
-        assertTrue(creation.create("Saved before transaction.", "Failed", "af_heart") is CreationResult.StorageFailure)
+        val publication = OrationPublication(db, root, DurableSourcePublisher, nextId = { "failed" })
+        assertTrue(publication.create("Saved before transaction.", "Failed", "af_heart") is CreationResult.StorageFailure)
         assertTrue(db.orations().all().isEmpty())
         assertTrue(db.joblog().recent().isEmpty())
         assertFalse(File(root, "failed").exists())
@@ -162,18 +162,18 @@ class OrationCreationTest {
     @Test
     fun `ordinary ID collisions and directory failures preserve existing artifacts`() {
         val row = seedGate()
-        val rowCollision = OrationCreation(db, root, DurableSourcePublisher, nextId = { "gate" })
+        val rowCollision = OrationPublication(db, root, DurableSourcePublisher, nextId = { "gate" })
         assertTrue(rowCollision.create("Replacement", "Wrong", "am_adam") is CreationResult.StorageFailure)
         val orphan = File(root, "orphan").also { it.mkdir() }
         File(orphan, "source.md").writeText("Previous attempt")
-        val directoryCollision = OrationCreation(db, root, DurableSourcePublisher, nextId = { "orphan" })
+        val directoryCollision = OrationPublication(db, root, DurableSourcePublisher, nextId = { "orphan" })
         assertTrue(directoryCollision.create("Replacement", "Wrong", "am_adam") is CreationResult.StorageFailure)
         assertEquals("Previous attempt", File(orphan, "source.md").readText())
         assertEquals(row, db.orations().byId("gate"))
         assertEquals("Saved source.", File(root, "gate/source.md").readText())
 
         val unavailable = File(root, "file-instead-of-directory").also { it.writeText("retain me") }
-        assertTrue(OrationCreation(db, unavailable).create("Text", "Name", "af_heart") is CreationResult.StorageFailure)
+        assertTrue(OrationPublication(db, unavailable).create("Text", "Name", "af_heart") is CreationResult.StorageFailure)
         assertEquals("retain me", unavailable.readText())
         assertEquals(1, db.joblog().recent().size)
     }
@@ -181,17 +181,17 @@ class OrationCreationTest {
     @Test
     fun `gate preparation shares publication and saved source wins over a changed bundle`() {
         var publications = 0
-        val creation = OrationCreation(db, root, SourcePublisher { pending, source, text ->
+        val publication = OrationPublication(db, root, SourcePublisher { pending, source, text ->
             publications++
             assertNull(db.orations().byId("gate"))
             DurableSourcePublisher.publish(pending, source, text)
         }, clock = { 42L })
-        val first = creation.prepareGate("# Heading\n\nSaved source.") as GatePreparation.Ready
+        val first = publication.prepareGate("# Heading\n\nSaved source.") as GatePreparation.Ready
         assertEquals("Heading.\n\nSaved source.", first.cleanedSource)
         assertEquals(3, first.row.words)
         assertEquals("Phase 1 gate", first.row.title)
         assertEquals("af_heart", first.row.voiceId)
-        assertEquals(first, creation.prepareGate("Changed bundle."))
+        assertEquals(first, publication.prepareGate("Changed bundle."))
         assertEquals(1, publications)
         assertEquals(1, db.joblog().count("gate", "created"))
     }
@@ -201,7 +201,7 @@ class OrationCreationTest {
         val row = seedGate()
         File(root, "gate/source.md").delete()
         val logs = db.joblog().recent()
-        val failing = OrationCreation(db, root, SourcePublisher { pending, source, text ->
+        val failing = OrationPublication(db, root, SourcePublisher { pending, source, text ->
             DurableSourcePublisher.publish(pending, source, text)
             throw IOException("failed after rename")
         })
@@ -212,12 +212,50 @@ class OrationCreationTest {
         assertArrayEquals(byteArrayOf(9, 8), File(root, "gate/audio.aac").readBytes())
         assertEquals(listOf("audio.aac"), File(root, "gate").list()!!.toList())
 
-        val ready = OrationCreation(db, root).prepareGate("Legacy bundle.") as GatePreparation.Ready
+        val ready = OrationPublication(db, root).prepareGate("Legacy bundle.") as GatePreparation.Ready
         assertEquals("Legacy bundle.", ready.cleanedSource)
         assertEquals(row, ready.row)
         assertEquals(row, db.orations().byId("gate"))
         assertEquals(logs, db.joblog().recent())
         assertArrayEquals(byteArrayOf(9, 8), File(root, "gate/audio.aac").readBytes())
+    }
+
+    @Test
+    fun `live creation waits for an earlier orphan sweep before reusing its directory name`() {
+        val directory = File(root, "reused").also { it.mkdir() }
+        File(directory, "source.md").writeText("abandoned")
+        val swept = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val publication = OrationPublication(db, root, DurableSourcePublisher, nextId = { "reused" }, clock = {
+            if (swept.count > 0) {
+                swept.countDown()
+                check(release.await(10, TimeUnit.SECONDS))
+            }
+            42L
+        })
+        val pool = Executors.newFixedThreadPool(2)
+        try {
+            val cleanup = pool.submit { publication.sweepOrphans() }
+            assertTrue(swept.await(5, TimeUnit.SECONDS))
+            assertFalse(directory.exists())
+            val savingStarted = CountDownLatch(1)
+            val saving = pool.submit<CreationResult> {
+                savingStarted.countDown()
+                publication.create("New document.", "New", "af_heart")
+            }
+            assertTrue(savingStarted.await(5, TimeUnit.SECONDS))
+            assertThrows(java.util.concurrent.TimeoutException::class.java) { saving.get(200, TimeUnit.MILLISECONDS) }
+            release.countDown()
+            cleanup.get(5, TimeUnit.SECONDS)
+            assertEquals(CreationResult.Created("reused"), saving.get(5, TimeUnit.SECONDS))
+            assertEquals("New document.", File(directory, "source.md").readText())
+            assertEquals("QUEUED", db.orations().byId("reused")!!.status)
+            assertEquals(listOf("created", "deleted"), db.joblog().recent().map { it.event })
+        } finally {
+            release.countDown()
+            pool.shutdown()
+            assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS))
+        }
     }
 
     @Test
@@ -227,7 +265,7 @@ class OrationCreationTest {
         File(abandoned, "source.pending").writeText("interrupted")
         val published = File(root, "rowless").also { it.mkdir() }
         File(published, "source.md").writeText("not committed")
-        OrationCreation(db, root).sweepOrphans()
+        OrationPublication(db, root).sweepOrphans()
         assertFalse(abandoned.exists())
         assertFalse(published.exists())
         assertTrue(File(root, "gate/source.md").exists())
@@ -239,8 +277,8 @@ class OrationCreationTest {
 
     @Test
     fun `unexpected publisher errors remain distinguishable from storage failures`() {
-        val creation = OrationCreation(db, root, SourcePublisher { _, _, _ -> error("programming bug") })
-        val error = assertThrows(IllegalStateException::class.java) { creation.create("Source", "Name", "af_heart") }
+        val publication = OrationPublication(db, root, SourcePublisher { _, _, _ -> error("programming bug") })
+        val error = assertThrows(IllegalStateException::class.java) { publication.create("Source", "Name", "af_heart") }
         assertEquals("programming bug", error.message)
         assertTrue(db.orations().all().isEmpty())
         assertTrue(root.listFiles()!!.isEmpty())

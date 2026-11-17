@@ -13,6 +13,7 @@ internal object SyncFactory {
             api = SottoApi(),
             credentials = EncryptedCredentialStore(app),
             narrationFacts = NarrationCoordinatorProvider.get(app).facts,
+            publication = NarrationCoordinatorProvider.publication(app),
         )
     }
 }

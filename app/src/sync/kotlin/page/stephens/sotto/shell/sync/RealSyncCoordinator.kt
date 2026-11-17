@@ -27,10 +27,12 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import page.stephens.sotto.engine.narrate.NarrationFacts
 import page.stephens.sotto.engine.store.JobLog
+import page.stephens.sotto.engine.store.DownloadPreparation
+import page.stephens.sotto.engine.store.DownloadPublication
 import page.stephens.sotto.engine.store.OrationEntity
+import page.stephens.sotto.engine.store.OrationPublication
 import page.stephens.sotto.engine.store.SottoDatabase
 import java.io.File
-import java.io.IOException
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
 
@@ -40,6 +42,7 @@ internal class RealSyncCoordinator(
     private val api: RemoteServer,
     private val credentials: CredentialStore,
     private val narrationFacts: StateFlow<NarrationFacts>,
+    private val publication: OrationPublication,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val clock: () -> Long = System::currentTimeMillis,
     private val idGenerator: () -> String = { UUID.randomUUID().toString() },
@@ -554,18 +557,13 @@ internal class RealSyncCoordinator(
         remoteName: String,
     ): Result<Unit> {
         val stagingDir = File(filesDir, "$STAGING_DIR_NAME/${oration.id}-${idGenerator()}")
-        val promotedFiles = mutableListOf<File>()
-        val targetDir = File(filesDir, "orations/${oration.id}")
-        val targetDirExisted = targetDir.isDirectory
-
-        fun rollbackPromotedFiles() {
-            promotedFiles.forEach { runCatching { it.delete() } }
-            if (!targetDirExisted && targetDir.isDirectory && targetDir.list()?.isEmpty() == true) {
-                runCatching { targetDir.delete() }
-            }
-        }
-
         return try {
+            val attempt = when (val prepared = publication.prepareDownload(oration.id, remoteName)) {
+                is DownloadPreparation.Ready -> prepared.attempt
+                DownloadPreparation.AlreadyAvailable -> return Result.success(Unit)
+                is DownloadPreparation.Rejected -> throw CancellationException("Download rejected: ${prepared.reason}")
+                is DownloadPreparation.StorageFailure -> throw prepared.cause
+            }
             val total = oration.audioBytes.coerceAtLeast(1L)
             val stagedAudio = File(stagingDir, "audio.aac")
             val stagedText = File(stagingDir, "source.md")
@@ -585,39 +583,17 @@ internal class RealSyncCoordinator(
             }
             val hasText = api.downloadText(session.serverUrl, session.token, remoteName, stagedText)
 
-            if (oration.id in narrationFacts.value.deletingIds || !coroutineContext.isActive) {
-                throw CancellationException("Download aborted before promotion")
+            val transferJob = coroutineContext[Job]
+            val result = publication.publishDownload(attempt, stagedAudio, stagedText.takeIf { hasText }) {
+                transferJob?.isActive == true && oration.id !in narrationFacts.value.deletingIds &&
+                    synchronized(coordinatorLock) { currentSession?.epoch == session.epoch }
             }
-            checkSessionActive(session)
-
-            if (!targetDirExisted && !targetDir.mkdirs()) {
-                throw IOException("Could not create destination directory")
+            when (result) {
+                DownloadPublication.Published, DownloadPublication.AlreadyAvailable -> Result.success(Unit)
+                is DownloadPublication.Rejected -> throw CancellationException("Download rejected: ${result.reason}")
+                is DownloadPublication.StorageFailure -> throw result.cause
             }
-            val finalAudio = File(targetDir, "audio.aac")
-            moveStagedFile(stagedAudio, finalAudio)
-            promotedFiles.add(finalAudio)
-
-            if (hasText && stagedText.exists()) {
-                val finalText = File(targetDir, "source.md")
-                moveStagedFile(stagedText, finalText)
-                promotedFiles.add(finalText)
-            }
-
-            val bytes = finalAudio.length()
-            db.runInTransaction {
-                checkSessionActive(session)
-                if (oration.id in narrationFacts.value.deletingIds) {
-                    throw CancellationException("Oration deleting during finalize")
-                }
-                val updated = db.orations().setDownloaded(oration.id, bytes)
-                if (updated == 0) {
-                    throw IllegalStateException("Oration row no longer exists")
-                }
-                JobLog(db.joblog(), clock).log("downloaded", oration.title, oration.id, remoteName)
-            }
-            Result.success(Unit)
         } catch (t: Throwable) {
-            rollbackPromotedFiles()
             if (t is UnauthorizedApiException) {
                 expireSessionIfEpochMatches(session.epoch, narrationMessage = null)
             } else if (t !is CancellationException) {
@@ -923,22 +899,6 @@ internal class RealSyncCoordinator(
         if (!stagingRoot.isDirectory) return
         stagingRoot.listFiles()?.forEach { child ->
             runCatching { child.deleteRecursively() }
-        }
-    }
-
-    private fun moveStagedFile(source: File, dest: File) {
-        if (dest.exists() && !dest.delete()) {
-            throw IOException("Could not replace destination file ${dest.name}")
-        }
-        if (source.renameTo(dest)) return
-        source.inputStream().use { input ->
-            dest.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-        if (!source.delete()) {
-            runCatching { dest.delete() }
-            throw IOException("Could not clean up staged file ${source.name}")
         }
     }
 

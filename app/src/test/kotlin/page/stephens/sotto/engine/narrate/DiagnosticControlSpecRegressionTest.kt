@@ -93,6 +93,7 @@ class DiagnosticControlSpecRegressionTest {
                 override fun encode(samples: FloatArray) = byteArrayOf(1, 2, 3, 4)
             } },
             callbackDispatcher = Dispatchers.Unconfined,
+            publication = page.stephens.sotto.engine.store.OrationPublication(db, root),
         )
     }
 }
