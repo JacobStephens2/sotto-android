@@ -43,6 +43,7 @@ Paths are relative to `app/src/main/kotlin/page/stephens/sotto/`.
 | Shared ordinary/gate source, lifecycle, chunk metadata, sink closure, and outcomes | `engine/narrate/OrationNarration.kt` |
 | Durable chunk execution and resume | `engine/narrate/NarrationEngine.kt` |
 | Oration rows, queue order, recovery, and migration | `engine/store/Db.kt` |
+| Source/gate creation, download attempts, final-file rollback, removal, and orphan cleanup | `engine/store/OrationPublication.kt` |
 | Audio append, truncate, and fsync | `engine/store/FileAudioSink.kt` |
 | Manual process-wide wiring and managed production model | `shell/service/NarrationCoordinatorProvider.kt` |
 | Android media resources, attachment, and command delegation | `shell/service/NarrationService.kt` |
@@ -52,7 +53,8 @@ Paths are relative to `app/src/main/kotlin/page/stephens/sotto/`.
 | Typed Lab requests and measurements | `engine/narrate/Diagnostics.kt`, `engine/narrate/DiagnosticExecution.kt`, `spike/MainActivity.kt` |
 
 For ownership changes, read [ADR-009](adr/ADR-009-retained-narration-ownership.md)
-and the interface tests before following private control or execution details.
+and [ADR-010](adr/ADR-010-serialize-oration-publication.md), then the interface
+tests before following private control or execution details.
 Issues #15 and #16 cover ordinary and diagnostic callers through the same
 retained worker. Lab owns neither a model nor an inference executor.
 Issue #22 consolidates their durable execution behind an internal operation;
@@ -63,6 +65,12 @@ Issue #26 keeps Oration playback inside the Android media owner behind domain
 commands. Start with `OrationPlaybackTest` for selection, transport preservation,
 deletion, sleep, and asynchronous close; `NarrationCommandsTest` retains actual
 Media3 and non-exported command-entry coverage.
+Issue #28 concentrates final-file ownership in Oration publication. Start with
+`OrationPublicationTest` for creation/gate/sweep and `DownloadedPublicationTest`
+for promotion/rollback/removal ordering; `SyncCoordinatorTest` retains the account
+replacement race with explicit file-placement and Room barriers. Production
+construction in `src/sync/.../SyncFactory.kt` uses the same process publication
+instance as the Narration worker and ordinary creation.
 
 ## Deliberately skipped
 

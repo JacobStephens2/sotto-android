@@ -24,3 +24,4 @@ Index:
 - ADR-007: Two build flavors, `local` (no network) and `sync` (opt-in server account)
 - ADR-008: In-app narration commands use a non-exported entry point
 - ADR-009: Retain narration ownership across ordinary commands and Android-owner teardown
+- ADR-010: Serialize Oration publication through one process owner

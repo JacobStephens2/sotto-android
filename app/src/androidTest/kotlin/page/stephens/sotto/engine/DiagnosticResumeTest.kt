@@ -15,6 +15,7 @@ import page.stephens.sotto.engine.narrate.ManagedSynthesizer
 import page.stephens.sotto.engine.narrate.ManagedSynthesizerFactory
 import page.stephens.sotto.engine.narrate.NarrationCoordinator
 import page.stephens.sotto.engine.store.SottoDatabase
+import page.stephens.sotto.engine.store.OrationPublication
 import page.stephens.sotto.shell.synth.AdtsAacEncoder
 import java.io.File
 import java.util.concurrent.CountDownLatch
@@ -52,7 +53,8 @@ class DiagnosticResumeTest {
                 override fun close() { check(!generating.get()); live.decrementAndGet() }
             }
         }
-        fun coordinator() = NarrationCoordinator(db, root, factory, ::AdtsAacEncoder)
+        val publication = OrationPublication(db, root)
+        fun coordinator() = NarrationCoordinator(db, root, factory, ::AdtsAacEncoder, publication = publication)
         suspend fun awaitStatus(status: String) = withTimeout(15_000) {
             val event = if (status == "COMPLETE") "completed" else "stopped"
             while (db.orations().byId("gate")?.status != status || db.joblog().count("gate", event) == 0) delay(5)

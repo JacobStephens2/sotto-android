@@ -359,7 +359,7 @@ class SottoActivity : ComponentActivity() {
                         scope.launch {
                             try {
                                 when (val result = withContext(Dispatchers.IO) {
-                                    NarrationCoordinatorProvider.creation(applicationContext).create(text, finalTitle, voice)
+                                    NarrationCoordinatorProvider.publication(applicationContext).create(text, finalTitle, voice)
                                 }) {
                                     is CreationResult.Created -> {
                                         svc(InAppNarrationService.ACTION_NARRATE, result.id)

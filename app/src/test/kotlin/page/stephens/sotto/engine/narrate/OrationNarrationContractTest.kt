@@ -13,7 +13,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import page.stephens.sotto.engine.store.DurableSourcePublisher
-import page.stephens.sotto.engine.store.OrationCreation
+import page.stephens.sotto.engine.store.OrationPublication
 import page.stephens.sotto.engine.store.OrationEntity
 import page.stephens.sotto.engine.store.SourcePublisher
 import page.stephens.sotto.engine.store.SottoDatabase
@@ -90,7 +90,7 @@ class OrationNarrationContractTest {
             },
             callbackDispatcher = Dispatchers.Unconfined,
             clock = { 100L },
-            creation = OrationCreation(db, root, publisher, clock = { 100L }),
+            publication = OrationPublication(db, root, publisher, clock = { 100L }),
         )
     }
 

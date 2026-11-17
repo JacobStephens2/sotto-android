@@ -30,7 +30,7 @@ artifacts. Layout mirrors the server's library sidecar convention (`.mp3` +
 
 Files: `orations/<id>/audio.aac` (ADTS AAC), `orations/<id>/source.md`.
 
-Ordinary and new gate publication uses `OrationCreation`: write a unique
+Ordinary and new gate publication uses `OrationPublication`: write a unique
 same-directory pending source, fsync and close it, then rename to `source.md`
 before inserting the row and created log together in one Room transaction.
 Ordinary IDs are generated inside creation; an existing row or directory is
@@ -39,15 +39,26 @@ input through typed outcomes. Expected storage failures leave no new row or
 created log, and remove only attempt-owned artifacts best effort. An abandoned
 rowless directory, including pending remnants, is reclaimable at startup.
 
-Creation and orphan classification/removal share a private process monitor,
+Creation, downloaded-file publication/rollback, row-first removal, and orphan
+classification/removal share a private process monitor (ADR-010),
 so sweeping cannot remove a live preparation before its row commits. Every
 directory with a row survives sweeping. This is ordered filesystem/Room
 publication, not a cross-store atomic transaction or a power-loss guarantee.
 Schema and queue ordering are unchanged. Sync transfers stage audio and optional
 source text inside `filesDir/sync-staging/<attempt>/` outside `orations/` (swept
-on sync startup), promote files only before calling `setDownloaded`, and roll back
-attempt-owned files without writing `"downloaded"` when Room returns `0` updated
-rows. Pulled remote renames write `mtime * 1000` into `updatedAt` and append a
+on sync startup). Preparation rereads the row and captures creation identity,
+server name, and a process-local removal generation in an opaque attempt.
+Removal advances that generation before changing storage, including failures.
+Finalization checks those facts, availability, and caller validity before mutation
+and inside Room. Preserve previous final audio/source with unique backups, promote
+and fsync/close staged files, then set the actual audio length and append one
+`downloaded` log in a single Room transaction without changing `updatedAt`.
+Source is optional. Pre-commit failure restores previous finals under the monitor
+and retains unrelated files. Already-available results change nothing; committed
+files cannot be undone by cancellation or best-effort backup/staging cleanup.
+The Narration worker still fences admission/playback and drains its matching
+writer/model before removal; failure leaves rowless files for startup retry and
+retains the append-only log. Pulled remote renames write `mtime * 1000` into `updatedAt` and append a
 `"renamed"` `JobLogEntry`.
 
 Schema v2 adds `queuedAt`. The v1 migration initializes it from `createdAt`

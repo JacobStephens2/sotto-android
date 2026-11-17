@@ -15,7 +15,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import page.stephens.sotto.engine.store.JobLog
 import page.stephens.sotto.engine.store.OrationEntity
-import page.stephens.sotto.engine.store.OrationCreation
+import page.stephens.sotto.engine.store.OrationPublication
+import page.stephens.sotto.engine.store.RemovalResult
 import page.stephens.sotto.engine.store.SottoDatabase
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -92,7 +93,7 @@ class NarrationCoordinator(
     private val encoderFactory: (Int) -> PcmEncoder,
     private val callbackDispatcher: CoroutineDispatcher = Dispatchers.Main,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val creation: OrationCreation = OrationCreation(db, orationsDir),
+    private val publication: OrationPublication,
     private val diagnosticEnvironment: DiagnosticEnvironment = object : DiagnosticEnvironment {
         override fun elapsedMs() = System.nanoTime() / 1_000_000
         override fun uptimeMs() = elapsedMs()
@@ -119,7 +120,7 @@ class NarrationCoordinator(
     private var modelOwner: Any? = null
     private var shutdownReply: CompletableDeferred<Unit>? = null
     private var initializationFailure: Throwable? = null
-    private val narration = OrationNarration(db, orationsDir, creation, encoderFactory, clock)
+    private val narration = OrationNarration(db, orationsDir, publication, encoderFactory, clock)
 
     internal class Run(val owner: AttachedNarrator, val id: String) {
         val stop = AtomicBoolean(false)
@@ -171,7 +172,7 @@ class NarrationCoordinator(
         scope.launch {
             try {
                 recoverInterrupted()
-                creation.sweepOrphans()
+                publication.sweepOrphans()
             } catch (t: Exception) {
                 initializationFailure = t
             }
@@ -423,13 +424,11 @@ class NarrationCoordinator(
             laneBusy = true
             scope.launch(lane) {
                 val result = try {
-                    val row = db.orations().byId(deletion.id)
-                    db.orations().delete(deletion.id)
-                    check(File(orationsDir, deletion.id).deleteRecursively()) { "Could not remove oration files" }
-                    JobLog(db.joblog()).log("deleted", row?.title ?: deletion.id, deletion.id)
-                    NarrationCommandResult.Deleted
+                    when (val removed = publication.remove(deletion.id)) {
+                        RemovalResult.Removed -> NarrationCommandResult.Deleted
+                        is RemovalResult.StorageFailure -> failed(removed.cause)
+                    }
                 } catch (t: Exception) {
-                    runCatching { JobLog(db.joblog()).log("error", deletion.id, deletion.id, "deletion failed: $t") }
                     failed(t)
                 }
                 mailbox.send(Message.Removed(deletion.id, result))

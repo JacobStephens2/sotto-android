@@ -40,6 +40,15 @@ src/testSync/  sync-flavor JVM suites (`SottoApiContractTest`,
   Keep encoder, progress, and audio-sink seams. Use real Room/files for
   ownership tests, not a generic storage or runner framework. Keep process-wide
   wiring manual and retain application dependencies only.
+- One manually wired `OrationPublication` owns source/gate publication, final
+  downloaded files and pre-commit rollback, row-first removal, and orphan cleanup
+  for the same Room/root. Inject it explicitly; never construct a default parallel
+  owner in narration or sync. Enter off-main outside Room and the sync lock;
+  order locks publication, Room, brief sync-validity read (ADR-010). Register
+  attempt ownership before file operations that may partly succeed. Keep network
+  transfer, callbacks, inference, encoding, and ordinary chunk writes outside its
+  monitor. The Narration worker keeps admission/playback fencing and writer/model
+  drain; sync keeps sessions, transfer progress, and staging cleanup.
 
 ## Conventions
 
@@ -50,7 +59,7 @@ src/testSync/  sync-flavor JVM suites (`SottoApiContractTest`,
   and fences callbacks. No main-thread joins, GlobalScope, or runBlocking
   outside tests.
 - Retained process-wide worker ownership lives in `engine/narrate`, including
-  admission, run identity, stop flags, outcome persistence, deletion, and
+  admission, run identity, stop flags, outcome persistence, deletion fencing/drain, and
   pickup. The Android caller must not reconstruct that protocol. Lab uses typed
   diagnostic requests on the same coordinator, never a model handle or arbitrary
   work closure. Diagnostic source/file/encoder/progress/log work and model

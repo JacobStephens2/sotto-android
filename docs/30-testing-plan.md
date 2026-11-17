@@ -18,7 +18,7 @@
   deterministic synthesizer and the existing encoder/progress/audio seams.
   Test commands through their public outcomes; keep jobs, run tokens, locks,
   and dispatcher choices private.
-- Oration creation through `create`, `prepareGate`, and `sweepOrphans` with real
+- Oration publication through `create`, `prepareGate`, and `sweepOrphans` with real
   local Room and temporary files. An internal source publisher has a production
   file adapter and a controlled test adapter that blocks or fails while keeping
   real filesystem effects. Hold publication before row insertion, start cleanup,
@@ -28,6 +28,21 @@
   directory collisions, abandoned pending/source cleanup, saved gate preference,
   and legacy repair preserving retained row/audio/checkpoint/log data. A publisher
   programming error must remain distinguishable from expected storage failures.
+- Download publication through `prepareDownload`, `publishDownload`, and `remove`
+  with real Room and temporary files. The narrow staged-file adapter delegates
+  real rename/copy/fsync and holds or fails after actual placement. Assert bytes,
+  rows, log counts, and outcomes for both publication/deletion orders, sweep
+  versus live publication, failure versus a waiting newer attempt, stale targets,
+  availability, and late publication after removal plus same-ID recreation.
+  Inject partial audio, post-audio/source promotion, and fsync faults, and a
+  SQLite trigger rejecting the downloaded log. Preserve preceding finals and
+  unrelated files, actual byte length, optional source, and `updatedAt`.
+  `SyncCoordinatorTest` holds old final audio before Room commit, coordinates a
+  Room transaction and replacement account, submits a newer download, then
+  releases the old attempt. Assert old rejection, new success, its actual bytes,
+  downloaded row, and exactly one downloaded log. Cancellation and cleanup after
+  commit cannot undo publication. Keep transport/session and attached deletion
+  integration tests rather than duplicating moved storage implementation tests.
 - Confirm caller tests hold a real Room transaction to verify submission stays
   disabled until commit, and force a filesystem failure then retry to verify
   retained name/voice/text, no premature command, and ID-only command delivery
@@ -58,7 +73,8 @@
     fencing, `401` auto-disconnect without clobbering newer sessions,
     single-flight sync coalescing, remote LWW rename surviving frequent playhead
     ticks, external `sync-staging` survival across `sweepOrphans()`, deletion
-    cancellation and 0-row commit rollback, upload dedupe, and bounded server
+    cancellation, fresh-row preparation and account-replacement publication,
+    upload dedupe, and bounded server
     narration polling edge cases.
   - `SyncUiTest`: Robolectric Compose caller coverage for Account connection/sync
     across recreation and off-main disconnect, Library download progress across
@@ -86,6 +102,8 @@ drain with callbacks queued, thread reload,
 diagnostic Stop/supersession, Lab detach, media-owner replacement during a gate,
 saved source, and legacy checkpoint recovery. Controlled adapters assert one
 model/generate lifetime, no premature release/mutation, and no late callback.
+Diagnostic verdict tests await callback delivery separately from completed Room
+facts because verdict enqueueing follows lifecycle persistence.
 Measurement tests use fixed clock/battery/thermal/memory observations and known
 arithmetic. Keep independent `NarrationEngine` durability/resume tests.
 `NarrationCoordinatorTest` also distinguishes the execution clock from wall

@@ -1,5 +1,75 @@
 # _state.md - sotto-android session handoff
 
+2026-11-17: Issue #28 deepens creation into `OrationPublication`, manually shared
+by ordinary creation, gate preparation, the Narration worker, and sync. One
+private monitor covers final-file mutation, matching Room commits, pre-commit
+rollback, row-first removal, and orphan classification/removal (ADR-010).
+Opaque download attempts capture creation identity, target, and removal
+generation; fresh rows and sync validity are rechecked before promotion and
+inside the downloaded-row/log transaction. Unique backups restore preceding
+finals on failure. Successful publication records actual audio length and one
+downloaded log, preserves `updatedAt`, accepts missing source, and survives
+later cancellation or best-effort cleanup. Removal advances generation even
+when it fails. Narration keeps admission/playback fencing and writer/model
+drain; sync keeps sessions, transfers, progress, and staging cleanup.
+
+The stale-snapshot regression failed before sync integration:
+
+```sh
+JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew testSyncDebugUnitTest --tests '*SyncCoordinatorTest.stale download snapshot*' -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+Its actual failure was `expected:<[kep]t> but was:<[replacemen]t>`; the same
+command passed after integration. Controlled real-file adapters now exercise
+partial promotion, rename/copy fallback, fsync faults, rejected downloaded logs,
+rollback before waiting newer attempts, deletion/sweep orderings, removal failure
+and orphan retry, changed identity/target/availability, and same-ID recreation.
+The account-replacement caller test holds old final audio before commit, holds
+Room, installs a replacement session, queues a newer download, and releases the
+old attempt. It checks old failure, new success, bytes, metadata, and one log.
+Existing creation/gate, attached commands, durability/resume, transport, and
+sync caller suites remain. No schema, permissions, text pipeline, model, or
+performance claims changed.
+
+Final validation passed with screenshot recording disabled and verification
+enabled:
+
+```sh
+PATH=/home/jacob/.local/jdk/jdk-21.0.12.1+1/bin:$PATH JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug assembleLocalDebugAndroidTest -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+The local JVM suite passed 150 tests across 15 suites; sync passed 182 tests
+across 18 suites, with no skips or failures. Both lint tasks reported zero errors. Debug
+APKs for both flavors and the local instrumentation APK built. APK `aapt dump
+permissions` checks passed against the CI allowlist: local has no network
+permissions, sync adds only INTERNET, and neither has ACCESS_NETWORK_STATE.
+
+The initial full sync run passed 179 tests and failed its existing TLS test
+because `keytool` was absent from PATH. Adding the documented JDK's bin directory
+fixed that environment issue. A later local run exposed a diagnostic-supersession
+test wait race: the completed row/log can precede enqueueing `GATE COMPLETE`.
+The exact focused command failed at its verdict assertion before the correction
+and passed afterward:
+
+```sh
+PATH=/home/jacob/.local/jdk/jdk-21.0.12.1+1/bin:$PATH JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew testLocalDebugUnitTest --tests '*NarrationCoordinatorTest.superseding a diagnostic fences*' -Proborazzi.record=false -Proborazzi.verify=true
+```
+
+That test now awaits actual verdict delivery while retaining every stale-callback
+assertion; production diagnostic behavior is unchanged. Independent Standards
+and Spec review against `refs/remotes/origin/master` at
+`82174c38fc9c50fb53995ef74139322982056e77` reported zero actionable findings on
+each axis, with every changed file read and no generated-output exclusions.
+Reports and counts are in `.thirdshift-review-CLQuaC/` for the session trace.
+
+Initial host setup required the documented local JDK and `tools/fetch-third-party.sh`
+to stage the fresh worktree's ignored build dependencies. The external prose
+guide `/var/www/Android2/Writing_Style_Guide_Unified.md` is absent on this host;
+repository prose and ADR guidance remain available. No device is attached
+(`adb devices -l` empty); `emulator -accel-check` reports status 11 because this
+user lacks `/dev/kvm` permission. Connected resume/migration instrumentation
+therefore remains unexecuted here; its source and test APK build are retained.
+
 2026-11-16: Issue #26 deepens Oration playback inside the existing Android media
 owner. `OrationPlayback` accepts play, saved-row listen-now, deletion stop,
 sleep duration, and close; `SavedOrationPlayback` hides request ordering,
@@ -347,6 +417,8 @@ Updated: 2026-10-15
 - In-app narration commands only on a non-exported service (ADR-008)
 - Retained process coordinator for ordinary and diagnostic narration; Android
   media ownership and off-main teardown drain (ADR-009).
+- Process-scoped Oration publication owns final source/audio, matching Room
+  facts, pre-commit rollback, row-first removal, and orphan reclamation (ADR-010).
 - `local` flavor = no INTERNET, flagship claim (ADR-004); `sync` flavor =
   opt-in sotto-server account/library sync (ADR-007, contract in
   12-api-contract.md)

@@ -13,7 +13,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import page.stephens.sotto.engine.store.OrationEntity
-import page.stephens.sotto.engine.store.OrationCreation
+import page.stephens.sotto.engine.store.OrationPublication
 import page.stephens.sotto.engine.store.CreationResult
 import page.stephens.sotto.engine.store.SottoDatabase
 import java.io.File
@@ -49,7 +49,7 @@ class NarrationCoordinatorTest {
     }
     private var callbackDispatcher: CoroutineDispatcher = Dispatchers.Unconfined
     private var clock: () -> Long = System::currentTimeMillis
-    private val creation by lazy { OrationCreation(db, root) }
+    private val publication by lazy { OrationPublication(db, root) }
     private val coordinator by lazy { NarrationCoordinator(
         db, root,
         ManagedSynthesizerFactory { profile ->
@@ -83,7 +83,7 @@ class NarrationCoordinatorTest {
         callbackDispatcher = callbackDispatcher,
         clock = { clock() },
         diagnosticEnvironment = environment,
-        creation = creation,
+        publication = publication,
     ) }
 
     @After
@@ -166,7 +166,7 @@ class NarrationCoordinatorTest {
         assertTrue(entered.await(5, TimeUnit.SECONDS))
         val result = withTimeout(5_000) {
             kotlinx.coroutines.withContext(Dispatchers.IO) {
-                creation.create("Another document.", "Created while busy", "af_heart")
+                publication.create("Another document.", "Created while busy", "af_heart")
             }
         }
         assertTrue(result is CreationResult.Created)
@@ -280,7 +280,13 @@ class NarrationCoordinatorTest {
         assertEquals(1, models.get())
         release.countDown()
         awaitStatus("gate", "COMPLETE")
-        callbackDispatcher.flush()
+        // The completed row/log precedes enqueueing the diagnostic verdict.
+        withTimeout(5_000) {
+            while (events.none { it is DiagnosticEvent.Line && it.text.startsWith("GATE COMPLETE") }) {
+                callbackDispatcher.flush()
+                kotlinx.coroutines.yield()
+            }
+        }
         assertFalse(events.any { it is DiagnosticEvent.Audio || it is DiagnosticEvent.Measured })
         assertTrue(events.any { it is DiagnosticEvent.Line && it.text.startsWith("GATE COMPLETE") })
         assertEquals(1, maximumModels.get())
@@ -841,6 +847,7 @@ class NarrationCoordinatorTest {
                 override fun encode(samples: FloatArray) = byteArrayOf(1, 2, 3, 4)
             } },
             callbackDispatcher = Dispatchers.Unconfined,
+            publication = publication,
         )
         try {
             val first = local.attach()

@@ -1,7 +1,25 @@
 # Tasks - sotto-android (living)
 
 Status: release hardware gates remain; ordinary/Lab narration and opt-in sync
-coordination share retained process-wide ownership (issues #15-16, #24). Updated 2026-11-16.
+coordination share retained process-wide ownership (issues #15-16, #24).
+Oration publication shares final-file ownership (issue #28). Updated 2026-11-17.
+
+## Oration publication (issue #28)
+
+- [x] Deepen creation into one explicitly injected process publication owner for
+      creation, gate preparation, downloaded files/Room facts, removal, and sweep
+- [x] Fence stale download attempts with fresh rows, creation identity, server
+      name, removal generation, availability, and sync caller validity
+- [x] Serialize promotion, fsync, downloaded-row/log commit, and pre-commit
+      rollback; restore previous finals and preserve unrelated files
+- [x] Keep writer/playback fencing and drain in narration, and remote transfers,
+      sessions, progress, and staging cleanup in sync
+- [x] Cover partial file operations, log rejection, deletion/sweep orderings,
+      same-ID recreation, and the account-replacement race with real Room/files
+- [x] Update glossary, ADR-010, architecture/data/testing/coding/reading guidance
+- [x] Validate both flavors' JVM suites and lint with screenshot verification,
+      manifest guards, retained instrumentation or concrete environment blocker
+- [x] Complete independent Standards and Spec review and prepare ready PR
 
 ## Oration playback (issue #26)
 
