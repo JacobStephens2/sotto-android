@@ -374,21 +374,13 @@ class NarrationCommandsTest {
         val untrusted = controllerInfo("com.untrusted.app", untrustedUid, isTrusted = false)
         assertNull(service.onGetSession(untrusted))
 
-        val sameController = connectController(context, session!!)
-        try {
-            assertTrue(sameController.isConnected)
-            assertTrue(sameController.isCommandAvailable(Player.COMMAND_PLAY_PAUSE))
-        } finally {
-            sameController.release()
-        }
-
-        val rejectedResult = connectControllerOutcome(
-            callerContext("com.untrusted.app"),
+        assertControllerConnectsWithPlayPause(context, session!!)
+        assertControllerRejected(
+            "com.untrusted.app",
             session,
             callingUid = untrustedUid,
+            message = "Untrusted controller connection must fail",
         )
-        rejectedResult.getOrNull()?.release()
-        assertTrue("Untrusted controller connection must fail", rejectedResult.isFailure)
     }
 
     @Test
@@ -405,13 +397,12 @@ class NarrationCommandsTest {
             session!!.connectedControllers.any { session.isMediaNotificationController(it) },
         )
 
-        val rejectedResult = connectControllerOutcome(
-            callerContext("android.media.session.MediaController"),
+        assertControllerRejected(
+            "android.media.session.MediaController",
             session,
             callingUid = -1,
+            message = "Negative-UID controller must be rejected on connect",
         )
-        rejectedResult.getOrNull()?.release()
-        assertTrue("Negative-UID controller must be rejected on connect", rejectedResult.isFailure)
     }
 
     @Test
@@ -447,33 +438,13 @@ class NarrationCommandsTest {
         val unresolvableSession = service.onGetSession(controllerInfo(unresolvablePkg, unresolvableUid, isTrusted = true))
         assertNotNull(unresolvableSession)
 
-        val trustedController = connectController(callerContext(trustedPkg), trustedSession!!, callingUid = trustedUid)
-        try {
-            assertTrue(trustedController.isConnected)
-            assertTrue(trustedController.isCommandAvailable(Player.COMMAND_PLAY_PAUSE))
-        } finally {
-            trustedController.release()
-        }
-
-        val systemController = connectController(callerContext(systemPkg), systemSession!!, callingUid = Process.SYSTEM_UID)
-        try {
-            assertTrue(systemController.isConnected)
-            assertTrue(systemController.isCommandAvailable(Player.COMMAND_PLAY_PAUSE))
-        } finally {
-            systemController.release()
-        }
-
-        val unresolvableController = connectController(
+        assertControllerConnectsWithPlayPause(callerContext(trustedPkg), trustedSession!!, callingUid = trustedUid)
+        assertControllerConnectsWithPlayPause(callerContext(systemPkg), systemSession!!, callingUid = Process.SYSTEM_UID)
+        assertControllerConnectsWithPlayPause(
             callerContext(unresolvablePkg),
             unresolvableSession!!,
             callingUid = unresolvableUid,
         )
-        try {
-            assertTrue(unresolvableController.isConnected)
-            assertTrue(unresolvableController.isCommandAvailable(Player.COMMAND_PLAY_PAUSE))
-        } finally {
-            unresolvableController.release()
-        }
     }
 
     @Test
@@ -602,8 +573,30 @@ class NarrationCommandsTest {
             override fun getPackageName(): String = packageName
         }
 
-    private fun connectController(caller: Context, session: MediaSession, callingUid: Int? = null): MediaController =
-        connectControllerOutcome(caller, session, callingUid).getOrThrow()
+    private fun assertControllerConnectsWithPlayPause(
+        caller: Context,
+        session: MediaSession,
+        callingUid: Int? = null,
+    ) {
+        val controller = connectControllerOutcome(caller, session, callingUid).getOrThrow()
+        try {
+            assertTrue(controller.isConnected)
+            assertTrue(controller.isCommandAvailable(Player.COMMAND_PLAY_PAUSE))
+        } finally {
+            controller.release()
+        }
+    }
+
+    private fun assertControllerRejected(
+        packageName: String,
+        session: MediaSession,
+        callingUid: Int,
+        message: String,
+    ) {
+        val rejected = connectControllerOutcome(callerContext(packageName), session, callingUid)
+        rejected.getOrNull()?.release()
+        assertTrue(message, rejected.isFailure)
+    }
 
     private fun connectControllerOutcome(
         caller: Context,
