@@ -23,10 +23,20 @@ JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Androi
 
 Targeted intake and Activity/Confirm creation suites pass, including blocked
 resolver reads, Back, old success/failure after recreation, complete Confirm
-restoration, failures, and Write rejection/double submission. Both-flavor final
-JVM/lint validation and independent review are pending. No connected Android
-device is available (`adb devices -l` empty); no headless browser is installed
-for native Android visual evidence. No hardware performance claim is made.
+restoration, failures, and Write rejection/double submission. Final verification
+passed with 163 local and 195 sync tests, no failures or skips, and zero lint
+errors (29 local / 31 sync warnings), with existing Roborazzi goldens verified:
+
+```sh
+PATH=/home/jacob/.local/jdk/jdk-21.0.12.1+1/bin:$PATH JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew --no-daemon lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest -Proborazzi.record=false -Proborazzi.verify=true --console=plain
+```
+
+The initial sync run could not start `keytool`; adding the JDK bin directory to
+PATH fixed that environment failure. Independent Standards and Spec reviewers
+each read all 14 changed files and raised zero actionable findings, with no
+generated exclusions or unread changed files. No connected Android device is
+available (`adb devices -l` empty); no headless browser is installed for native
+Android visual evidence. No hardware performance claim is made.
 
 2026-11-17: Issue #28 deepens creation into `OrationPublication`, manually shared
 by ordinary creation, gate preparation, the Narration worker, and sync. One

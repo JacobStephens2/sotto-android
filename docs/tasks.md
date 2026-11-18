@@ -16,8 +16,8 @@ owns complete validation (issue #30). Updated 2026-11-18.
 - [x] Cover intake outcomes and real Activity intent, failure, Back, recreation,
       and Write behavior; retain independent publication validation
 - [x] Update glossary, governing input/architecture/testing/style/reading docs
-- [ ] Validate both flavors' JVM suites and Android lint
-- [ ] Complete independent Standards/Spec review and publish a ready PR
+- [x] Validate both flavors' JVM suites and Android lint
+- [x] Complete independent Standards/Spec review and prepare a ready PR
 
 ## Oration publication (issue #28)
 
