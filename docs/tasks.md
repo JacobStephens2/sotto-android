@@ -3,7 +3,20 @@
 Status: release hardware gates remain; ordinary/Lab narration and opt-in sync
 coordination share retained process-wide ownership (issues #15-16, #24).
 Oration publication shares final-file ownership (issue #28). Document intake
-owns complete validation (issue #30). Updated 2026-11-18.
+owns complete validation (issue #30). Exported MediaSession authorization
+restricts controllers across `onGetSession` and `onConnect` (issue #32).
+Updated 2026-11-18.
+
+## Exported MediaSession authorization (issue #32)
+
+- [x] Install `MediaSession.Callback` via `MediaSession.Builder.setCallback` and
+      enforce one authorization check across `onGetSession` and `onConnect`
+- [x] Accept same-UID, verified trusted (checking resolvable non-system UID
+      packages), and negative-UID internal `onGetSession` intents; reject others
+- [x] Add regression tests in `NarrationCommandsTest` covering same-UID,
+      trusted, negative-UID, untrusted, and UID-mismatched controllers
+- [x] Update governing architecture, testing, style, ADR-008, and handoff docs
+- [x] Validate both flavors' JVM suites, Android lint, and manifest guards
 
 ## Document intake (issue #30)
 

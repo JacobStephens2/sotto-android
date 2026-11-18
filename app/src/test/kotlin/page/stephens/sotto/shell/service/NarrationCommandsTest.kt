@@ -1,19 +1,31 @@
 package page.stephens.sotto.shell.service
 
-// The exported MediaSession service must ignore in-app commands. Any other app
-// can start an exported service; delete, narrate, play, stop, and the sleep
-// timer are accepted only by the non-exported entry point the UI starts.
+// The exported MediaSession service must ignore in-app commands and reject
+// unauthorized MediaSession controllers. Any other app can start an exported
+// service; delete, narrate, play, stop, and the sleep timer are accepted only
+// by the non-exported entry point the UI starts, and MediaSession access is
+// restricted to same-UID and verified trusted controllers (ADR-008).
 
 import android.content.ComponentName
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Bundle
 import android.os.Looper
+import android.os.Process
+import android.provider.Settings
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommands
 import androidx.test.core.app.ApplicationProvider
+import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -28,6 +40,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ServiceController
+import org.robolectric.shadows.ShadowBinder
 import org.robolectric.shadows.ShadowToast
 import page.stephens.sotto.engine.store.OrationEntity
 import page.stephens.sotto.engine.store.SottoDatabase
@@ -45,6 +58,7 @@ class NarrationCommandsTest {
 
     @After
     fun tearDown() {
+        ShadowBinder.reset()
         inApp?.destroy()
         narration?.destroy()
         val playbackDrained = PlaybackPersistence.shutdownSharedForTest()
@@ -349,6 +363,125 @@ class NarrationCommandsTest {
         }
     }
 
+    @Test
+    fun `same-UID controller connects to the session while an untrusted controller is rejected`() {
+        val service = startNarration()
+        val sameUid = controllerInfo(context.packageName, Process.myUid(), isTrusted = false)
+        val session = service.onGetSession(sameUid)
+        assertNotNull(session)
+
+        val untrustedUid = Process.myUid() + 100
+        val untrusted = controllerInfo("com.untrusted.app", untrustedUid, isTrusted = false)
+        assertNull(service.onGetSession(untrusted))
+
+        assertControllerConnectsWithPlayPause(context, session!!)
+        assertControllerRejected(
+            "com.untrusted.app",
+            session,
+            callingUid = untrustedUid,
+            message = "Untrusted controller connection must fail",
+        )
+    }
+
+    @Test
+    fun `negative-UID internal intents still receive the session from onGetSession while onConnect rejects negative UIDs`() {
+        val service = startNarration()
+        val legacyInfo = controllerInfo("android.media.session.MediaController", uid = -1, isTrusted = false)
+        val session = service.onGetSession(legacyInfo)
+        assertNotNull(session)
+
+        assertNotNull(service.onBind(Intent("android.media.browse.MediaBrowserService")))
+        idle()
+        assertTrue(
+            "Notification controller must remain connected",
+            session!!.connectedControllers.any { session.isMediaNotificationController(it) },
+        )
+
+        assertControllerRejected(
+            "android.media.session.MediaController",
+            session,
+            callingUid = -1,
+            message = "Negative-UID controller must be rejected on connect",
+        )
+    }
+
+    @Test
+    fun `trusted controllers with matching UID package, SYSTEM_UID, or unresolvable UID packages are accepted`() {
+        val trustedPkg = "com.trusted.media"
+        val trustedUid = Process.myUid() + 200
+        installPackage(trustedPkg, trustedUid)
+        val pm = shadowOf(context.packageManager)
+        pm.setPackagesForUid(trustedUid, trustedPkg)
+        Settings.Secure.putString(
+            context.contentResolver,
+            "enabled_notification_listeners",
+            "$trustedPkg/$trustedPkg.Listener",
+        )
+
+        val systemPkg = "com.android.systemui"
+        installPackage(systemPkg, Process.SYSTEM_UID)
+        pm.setPackagesForUid(Process.SYSTEM_UID, "android")
+
+        val service = startNarration()
+        val trustedSession = service.onGetSession(controllerInfo(trustedPkg, trustedUid, isTrusted = true))
+        assertNotNull(trustedSession)
+        val systemSession = service.onGetSession(controllerInfo(systemPkg, Process.SYSTEM_UID, isTrusted = true))
+        assertNotNull(systemSession)
+        val unresolvablePkg = "com.trusted.unresolvable"
+        installPackage(unresolvablePkg, uid = 0)
+        Settings.Secure.putString(
+            context.contentResolver,
+            "enabled_notification_listeners",
+            "$trustedPkg/$trustedPkg.Listener:$unresolvablePkg/$unresolvablePkg.Listener",
+        )
+        val unresolvableUid = Process.myUid() + 201
+        val unresolvableSession = service.onGetSession(controllerInfo(unresolvablePkg, unresolvableUid, isTrusted = true))
+        assertNotNull(unresolvableSession)
+
+        assertControllerConnectsWithPlayPause(callerContext(trustedPkg), trustedSession!!, callingUid = trustedUid)
+        assertControllerConnectsWithPlayPause(callerContext(systemPkg), systemSession!!, callingUid = Process.SYSTEM_UID)
+        assertControllerConnectsWithPlayPause(
+            callerContext(unresolvablePkg),
+            unresolvableSession!!,
+            callingUid = unresolvableUid,
+        )
+    }
+
+    @Test
+    fun `trusted-marked controller whose package name does not match its UID is rejected`() {
+        val spoofedPkg = "com.trusted.listener"
+        val attackerPkg = "com.attacker.app"
+        val attackerUid = Process.myUid() + 300
+        installPackage(spoofedPkg, Process.myUid() + 301)
+        installPackage(attackerPkg, attackerUid)
+        shadowOf(context.packageManager).setPackagesForUid(attackerUid, attackerPkg)
+        Settings.Secure.putString(
+            context.contentResolver,
+            "enabled_notification_listeners",
+            "$spoofedPkg/$spoofedPkg.Listener",
+        )
+
+        val service = startNarration()
+        val sameSession = service.onGetSession(controllerInfo(context.packageName, Process.myUid(), isTrusted = true))
+        assertNotNull(sameSession)
+
+        assertNull(service.onGetSession(controllerInfo(spoofedPkg, attackerUid, isTrusted = true)))
+
+        val outcome = connectControllerOutcome(callerContext(spoofedPkg), sameSession!!, callingUid = attackerUid)
+        val controller = outcome.getOrNull()
+        try {
+            // Media3 maps ConnectionResult.reject() for isTrusted=true controllers to empty
+            // session/player commands; MediaController locally retains COMMAND_RELEASE.
+            assertNotNull("Expected MediaController wrapper with rejected commands", controller)
+            val localOnly = Player.Commands.Builder().add(Player.COMMAND_RELEASE).build()
+            assertFalse(controller!!.isCommandAvailable(Player.COMMAND_PLAY_PAUSE))
+            assertEquals(localOnly, controller.availableCommands)
+            assertEquals(SessionCommands.EMPTY, controller.availableSessionCommands)
+        } finally {
+            controller?.release()
+        }
+    }
+
     private fun startNarration(intent: Intent? = null): NarrationService {
         val controller = if (intent == null) {
             Robolectric.buildService(NarrationService::class.java)
@@ -412,6 +545,78 @@ class NarrationCommandsTest {
     private fun sleepLogged(minutes: Int, afterId: Long) = runBlocking(Dispatchers.IO) {
         db.joblog().recent(50).any {
             it.id > afterId && it.event == "sleep-timer" && it.title.contains("$minutes")
+        }
+    }
+
+    private fun installPackage(packageName: String, uid: Int) {
+        val info = PackageInfo().apply {
+            this.packageName = packageName
+            applicationInfo = ApplicationInfo().apply {
+                this.packageName = packageName
+                this.uid = uid
+            }
+        }
+        shadowOf(context.packageManager).installPackage(info)
+    }
+
+    private fun controllerInfo(
+        packageName: String,
+        uid: Int,
+        isTrusted: Boolean,
+    ): MediaSession.ControllerInfo =
+        MediaSession.ControllerInfo.createTestOnlyControllerInfo(
+            packageName, 1, uid, 1, 1, isTrusted, Bundle.EMPTY,
+        )
+
+    private fun callerContext(packageName: String): Context =
+        object : ContextWrapper(context) {
+            override fun getPackageName(): String = packageName
+        }
+
+    private fun assertControllerConnectsWithPlayPause(
+        caller: Context,
+        session: MediaSession,
+        callingUid: Int? = null,
+    ) {
+        val controller = connectControllerOutcome(caller, session, callingUid).getOrThrow()
+        try {
+            assertTrue(controller.isConnected)
+            assertTrue(controller.isCommandAvailable(Player.COMMAND_PLAY_PAUSE))
+        } finally {
+            controller.release()
+        }
+    }
+
+    private fun assertControllerRejected(
+        packageName: String,
+        session: MediaSession,
+        callingUid: Int,
+        message: String,
+    ) {
+        val rejected = connectControllerOutcome(callerContext(packageName), session, callingUid)
+        rejected.getOrNull()?.release()
+        assertTrue(message, rejected.isFailure)
+    }
+
+    private fun connectControllerOutcome(
+        caller: Context,
+        session: MediaSession,
+        callingUid: Int? = null,
+    ): Result<MediaController> {
+        var future: ListenableFuture<MediaController>? = null
+        return try {
+            if (callingUid != null) ShadowBinder.setCallingUid(callingUid)
+            future = MediaController.Builder(caller, session.token).buildAsync()
+            await { future.isDone }
+            assertTrue("Controller connection future did not settle", future.isDone)
+            Result.success(future.get())
+        } catch (t: Throwable) {
+            Result.failure(t)
+        } finally {
+            ShadowBinder.reset()
+            future?.let { f ->
+                if (!f.isDone) MediaController.releaseFuture(f)
+            }
         }
     }
 

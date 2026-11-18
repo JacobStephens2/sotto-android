@@ -11,6 +11,7 @@ package page.stephens.sotto.shell.service
 // finding says bank buffer while cold).
 
 import android.content.Intent
+import android.os.Process
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
@@ -46,6 +47,15 @@ class NarrationService : MediaSessionService() {
     @Volatile private var destroyed = false
     private lateinit var playback: OrationPlayback
 
+    private val sessionCallback = object : MediaSession.Callback {
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): MediaSession.ConnectionResult =
+            if (isAuthorizedController(controller)) super.onConnect(session, controller)
+            else MediaSession.ConnectionResult.reject()
+    }
+
     @OptIn(UnstableApi::class)   // ADTS constant-bitrate seeking is Media3 "unstable" API
     override fun onCreate() {
         super.onCreate()
@@ -57,7 +67,9 @@ class NarrationService : MediaSessionService() {
             .setMediaSourceFactory(DefaultMediaSourceFactory(this, extractors))
             .setHandleAudioBecomingNoisy(true)
             .build()
-        session = MediaSession.Builder(this, player).build()
+        session = MediaSession.Builder(this, player)
+            .setCallback(sessionCallback)
+            .build()
         val coordinator = NarrationCoordinatorProvider.get(this)
         playback = SavedOrationPlayback(
             db, File(filesDir, "orations"), Media3PlaybackOutput(player),
@@ -70,7 +82,22 @@ class NarrationService : MediaSessionService() {
         attachInApp()
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
+        if (controllerInfo.uid < 0 || isAuthorizedController(controllerInfo)) session else null
+
+    // Media3 marks controllers trusted by package name alone for notification listeners,
+    // so check resolvable non-system UIDs own the claimed package before granting access.
+    @OptIn(UnstableApi::class)   // ControllerInfo.isTrusted is Media3 "unstable" API
+    private fun isAuthorizedController(controllerInfo: MediaSession.ControllerInfo): Boolean {
+        val uid = controllerInfo.uid
+        if (uid == Process.myUid()) return true
+        if (!controllerInfo.isTrusted || uid < 0) return false
+        if (uid != Process.SYSTEM_UID) {
+            val uidPackages = packageManager.getPackagesForUid(uid)
+            if (!uidPackages.isNullOrEmpty() && controllerInfo.packageName !in uidPackages) return false
+        }
+        return true
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Exported for the Media3 session, so any app can start this service.
