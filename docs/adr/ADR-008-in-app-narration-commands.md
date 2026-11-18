@@ -8,6 +8,18 @@ Ownership clarification (2026-11-12):
 coordination behind an attachment owned by the media service. This ADR still
 governs command entry and exported Media3 transport access.
 
+Session authorization update (2026-11-18, issue #32):
+Exported `NarrationService` restricts Media3 session access across both
+`onGetSession` and `MediaSession.Callback.onConnect` (installed via
+`MediaSession.Builder.setCallback`) using one controller authorization check.
+It accepts only same-UID controllers (`Process.myUid()`) and verified trusted
+controllers (`controllerInfo.isTrusted`, checking `controllerInfo.packageName`
+against `PackageManager.getPackagesForUid(controllerInfo.uid)` when UID packages
+are resolvable and `uid != Process.SYSTEM_UID`). `onGetSession` continues to
+return the session for negative-UID internal `MediaSessionService` intents
+(`controllerInfo.uid < 0`). All other controllers are rejected (`null` from
+`onGetSession`; `MediaSession.ConnectionResult.reject()` from `onConnect`).
+
 ## Decision
 
 Start narration, play, stop narration, the sleep timer, and delete are accepted
@@ -38,4 +50,5 @@ put on that intent.
   oration is marked stopped unless it was already complete.
 - Rules out handling narrate, play, stop narration, sleep timer, or delete in
   `NarrationService.onStartCommand`. Does not rule out ordinary Media3
-  transport controls on the exported session.
+  transport controls for same-UID or verified trusted controllers; rules out
+  granting `MediaSession` access to untrusted or UID-mismatched controllers.

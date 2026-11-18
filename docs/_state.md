@@ -1,5 +1,49 @@
 # _state.md - sotto-android session handoff
 
+2026-11-18: Issue #32 restricts `NarrationService` MediaSession controller access
+across both `onGetSession` and `MediaSession.Callback.onConnect` (installed via
+`MediaSession.Builder.setCallback`) using one controller authorization check.
+It accepts only same-UID controllers (`Process.myUid()`) and verified trusted
+controllers (`controllerInfo.isTrusted`, checking `controllerInfo.packageName`
+against `PackageManager.getPackagesForUid(controllerInfo.uid)` when UID packages
+are resolvable and `uid != Process.SYSTEM_UID`). `onGetSession` keeps returning
+the session for negative-UID internal `MediaSessionService` intents
+(`controllerInfo.uid < 0`), while `onConnect` rejects negative UIDs. All other
+controllers receive `null` from `onGetSession` and
+`MediaSession.ConnectionResult.reject()` from `onConnect`. Updated
+`docs/adr/ADR-008-in-app-narration-commands.md`,
+`docs/10-architecture-overview.md`, `docs/30-testing-plan.md`,
+`docs/40-code-style.md`, and `docs/tasks.md`; no new ADR, manifest, schema,
+model, network, or text-pipeline change.
+
+Before the authorization change, the untrusted-controller regression failed
+with `java.lang.AssertionError` in `NarrationCommandsTest`:
+
+```sh
+PATH=/home/jacob/.local/jdk/jdk-21.0.12.1+1/bin:$PATH JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew --no-daemon testLocalDebugUnitTest --tests '*NarrationCommandsTest.same-UID controller connects to the session while an untrusted controller is rejected' -Proborazzi.record=false -Proborazzi.verify=true --console=plain
+```
+
+`NarrationCommandsTest` (17 tests) covers same-UID, verified trusted
+(matching UID package, `SYSTEM_UID`, and unresolvable UID packages),
+negative-UID internal `onGetSession` vs `onConnect` rejection, untrusted
+rejection, UID-mismatched trusted-package rejection, notification-controller
+attachment, and existing `InAppNarrationService` and session behavior.
+
+Final verification passed with 167 local tests (16 suites) and 199 sync tests
+(19 suites), zero failures, errors, or skips, zero lint errors (29 local / 31
+sync warnings), existing Roborazzi goldens verified, and debug APKs built:
+
+```sh
+PATH=/home/jacob/.local/jdk/jdk-21.0.12.1+1/bin:$PATH JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew --no-daemon lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug -Proborazzi.record=false -Proborazzi.verify=true --console=plain
+```
+
+APK `aapt dump permissions` manifest guards passed: `local` has no `INTERNET`
+or `ACCESS_NETWORK_STATE`, and `sync` adds `INTERNET` only. No connected
+Android device is available (`adb devices -l` empty), and
+`emulator -accel-check` exits 11 (`/dev/kvm` permission denied); no headless
+browser is installed for native Android visual evidence. No hardware
+performance claim is made.
+
 2026-11-18: Issue #30 deepens Document intake behind `Intake.accept`, taking
 typed text or a deferred stream opener and returning Accepted, Empty, TooLarge,
 or Unreadable. IO dispatch owns opening, bounded replacement decoding, Kotlin

@@ -105,7 +105,14 @@ share sheet / file open / paste
   during owner teardown, and ordinary queue pickup requires an attached owner
   (ADR-009). ADR-003's expedited WorkManager path remains planned; this change
   does not add background scheduling. The service is exported so the system
-  can bind the session, and it ignores in-app commands (ADR-008).
+  can bind the session, and it ignores in-app commands (ADR-008). Both
+  `onGetSession` and the `MediaSession.Callback.onConnect` installed via
+  `MediaSession.Builder.setCallback` enforce one controller authorization check,
+  accepting same-UID controllers (`Process.myUid()`) and verified trusted
+  controllers (`controllerInfo.isTrusted`, matching
+  `PackageManager.getPackagesForUid` when resolvable and `uid != SYSTEM_UID`),
+  while `onGetSession` keeps returning the session for negative-UID internal
+  `MediaSessionService` intents and rejecting all other controllers.
 - **InAppNarrationService** - not exported, no intent-filter. The UI starts it
   for narrate, play, stop narration, the sleep timer, and delete. It hands
   those to `NarrationService` inside the process. Another app cannot start it.

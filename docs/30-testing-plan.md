@@ -146,8 +146,13 @@ and FIFO positions across replacement owners. Assert output effects, saved
 positions/logs, and drain completion rather than private epochs, jobs, or queues.
 Hold accepted writes across a return to the previous Oration and owner
 replacement; selection must restore the latest accepted position before drain.
-Keep actual Media3 command-entry, sleep, exported rejection, deletion, and Lab
-reset checks alongside these contracts, and independent durability/sync tests.
+Keep actual Media3 command-entry, sleep, exported rejection, deletion, Lab
+reset, and `MediaSession` controller authorization checks (same-UID, verified
+trusted including `SYSTEM_UID` and unresolvable UID packages, negative-UID
+internal `MediaSessionService` intents in `onGetSession`, and untrusted or
+UID-mismatched rejection across `onGetSession` and `MediaSession.Callback.onConnect`
+with notification and `InAppNarrationService` behavior retained) alongside these
+contracts, and independent durability/sync tests.
 `DiagnosticResumeTest` exercises Room, real ADTS encoding, shared gate ownership,
 reset, legacy source fallback, process recovery, and byte-identical resume with
 crash garbage. Existing Room resume/migration instrumentation remains required.

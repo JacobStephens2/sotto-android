@@ -93,7 +93,9 @@ src/testSync/  sync-flavor JVM suites (`SottoApiContractTest`,
 - Narrate, play, stop narration, sleep timer, and delete are started on the
   non-exported `InAppNarrationService`. `NarrationService.onStartCommand` does
   not handle them (ADR-008); that service stays exported only for the Media3
-  session.
+  session, and enforces one controller authorization check across
+  `onGetSession` and `MediaSession.Callback.onConnect` (same-UID or verified
+  trusted controller, plus negative-UID internal intents in `onGetSession`).
 - Naming mirrors [the domain glossary](../GLOSSARY.md): Oration, chunk,
   Narration worker, narrate - not "track,"
   "segment," "synthesize" in user-facing or domain code. ("Synthesis" is
