@@ -2,7 +2,22 @@
 
 Status: release hardware gates remain; ordinary/Lab narration and opt-in sync
 coordination share retained process-wide ownership (issues #15-16, #24).
-Oration publication shares final-file ownership (issue #28). Updated 2026-11-17.
+Oration publication shares final-file ownership (issue #28). Document intake
+owns complete validation (issue #30). Updated 2026-11-18.
+
+## Document intake (issue #30)
+
+- [x] Replace caller read/check sequencing with one suspending typed intake
+- [x] Bound retained stream text while preserving complete trimming, UTF-8,
+      replacement decoding, file BOM, and normalized size semantics
+- [x] Own off-main opening/read/validation/closure and cooperative cancellation
+- [x] Fence Activity delivery, render Reading, restart unfinished restoration,
+      preserve completed screens, and guard Write while retaining rejected text
+- [x] Cover intake outcomes and real Activity intent, failure, Back, recreation,
+      and Write behavior; retain independent publication validation
+- [x] Update glossary, governing input/architecture/testing/style/reading docs
+- [x] Validate both flavors' JVM suites and Android lint
+- [x] Complete independent Standards/Spec review and prepare a ready PR
 
 ## Oration publication (issue #28)
 

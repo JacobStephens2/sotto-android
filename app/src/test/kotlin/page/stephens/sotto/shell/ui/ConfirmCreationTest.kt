@@ -47,6 +47,7 @@ class ConfirmCreationTest {
         compose.onNodeWithText("+  Write").performClick()
         compose.onNodeWithText("Paste or type what Sotto should read").performTextReplacement("A saved document.")
         compose.onNodeWithText("Continue").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Name").performTextReplacement("My oration")
         compose.onNodeWithText("Narrate").performScrollTo()
 
@@ -84,6 +85,7 @@ class ConfirmCreationTest {
         compose.onNodeWithText("+  Write").performClick()
         compose.onNodeWithText("Paste or type what Sotto should read").performTextReplacement("Keep this document.")
         compose.onNodeWithText("Continue").performClick()
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Name").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Name").performTextReplacement("Retain this name")
         compose.onAllNodesWithText("choose")[0].performScrollTo().performClick()
         compose.onNodeWithText("Narrate").performScrollTo().performClick()

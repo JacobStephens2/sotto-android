@@ -12,6 +12,18 @@
   the server is the reference implementation.
 - Title derivation, estimator median math, state-machine transitions
   (every edge in 11-data-model.md, including illegal-transition rejection).
+- Document intake through `Intake.accept` with real byte-array/file streams and
+  controlled read/open/close adapters. Cover complete-document trimming, long
+  leading/trailing/interior whitespace, exact/over cap, split multibyte and
+  supplementary characters, replacement decoding, file/direct BOM policy,
+  expected failures, off-main work, closure, and cooperative cancellation.
+  Compare accepted stream text against complete String validation. Retain
+  independent Oration publication validation tests.
+- `DocumentIntakeTest` launches the real Activity for SEND text/stream, VIEW,
+  precedence, missing/unsupported payloads, and Write. Resolver suppliers hold
+  reads with latches while the UI renders and accepts Back. Recreate unfinished
+  reads and completed Confirm, check stale success/failure fencing, saved
+  text/title/voice, and no intake-created rows, logs, or narration commands.
 - Ordinary narration ownership through attached `narrate`, `stop`, `delete`,
   detach/replacement, observable facts/results, Room rows/logs, and artifact
   bytes. Use local Room databases and temporary real files with a managed

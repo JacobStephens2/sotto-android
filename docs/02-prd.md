@@ -106,7 +106,20 @@ phone and my desktop browser.*
 
 - F1: Accept `ACTION_SEND` (text), `ACTION_SEND` (stream for text files), and
   `ACTION_VIEW`/`ACTION_OPEN_DOCUMENT` for `.md`/`.txt`.
-- F2: Input cap 400 KB of text (server parity); over-limit shows a clear message.
+- F2: Document intake accepts complete text after Kotlin whitespace trimming,
+  up to 409,600 UTF-8 bytes (400 KB). Files decode malformed UTF-8 with
+  replacement and remove one initial BOM; direct text preserves its BOM.
+  Arbitrarily long surrounding whitespace is allowed; interior whitespace
+  counts toward the limit. Never accept a truncated prefix. Shared text takes
+  precedence over a shared stream. Opening, reading, validation, and closure
+  run off-main behind one validated operation, with bounded retained stream
+  text. Initial reads show a reading state; Back or leaving intake fences late
+  completion. Write prevents duplicate Continue and retains rejected text.
+  Empty, unreadable, and over-limit results explain the failure; the latter
+  names the 400 KB limit without claiming a partial byte count is the file size.
+  Restored completed screens do not repeat intake or its messages; an unfinished
+  initial read restarts in the new Activity. Intake creates no Oration, log, or
+  narration command; publication retains synchronous defensive validation.
 - F3: Chunking at sentence boundaries, ~1,000 chars per chunk (server's
   `KOKORO_CHUNK_LIMIT`), implemented as the ported `chunk()`.
 - F4: Synthesis via sherpa-onnx running Kokoro-82M int8 (ADR-002); the 7 curated

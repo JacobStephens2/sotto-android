@@ -70,6 +70,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -112,6 +114,7 @@ private val OPENAI_VOICE_LABELS = mapOf(
 
 private sealed class Screen {
     data object Library : Screen()
+    data object Reading : Screen()
     data object Compose : Screen()
     data class Confirm(val text: String) : Screen()
     data class Play(val id: String) : Screen()
@@ -123,6 +126,7 @@ private val ScreenSaver = listSaver<Screen, String>(
     save = { s ->
         when (s) {
             Screen.Library -> listOf("library")
+            Screen.Reading -> listOf("reading")
             Screen.Compose -> listOf("compose")
             is Screen.Confirm -> listOf("confirm", s.text)
             is Screen.Play -> listOf("play", s.id)
@@ -132,6 +136,7 @@ private val ScreenSaver = listSaver<Screen, String>(
     },
     restore = { list ->
         when (list.firstOrNull()) {
+            "reading" -> Screen.Reading
             "compose" -> Screen.Compose
             "confirm" -> Screen.Confirm(list.getOrElse(1) { "" })
             "play" -> Screen.Play(list.getOrElse(1) { "" })
@@ -150,15 +155,32 @@ class SottoActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         db = SottoDatabase.open(this)
-        val sharedIn = sharedText(intent)
         setContent {
             SottoTheme {
                 val syncState = sync?.state?.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)?.value
                 var screen by rememberSaveable(stateSaver = ScreenSaver) {
-                    mutableStateOf<Screen>(if (sharedIn != null) Screen.Confirm(sharedIn) else Screen.Library)
+                    mutableStateOf<Screen>(if (intent?.action in listOf(Intent.ACTION_SEND, Intent.ACTION_VIEW))
+                        Screen.Reading else Screen.Library)
                 }
                 BackHandler(enabled = screen != Screen.Library) { screen = Screen.Library }
                 when (val s = screen) {
+                    Screen.Reading -> {
+                        Column(Modifier.padding(16.dp)) {
+                            Text("Reading document...")
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                            TextButton(onClick = { screen = Screen.Library }) { Text("Back") }
+                        }
+                        LaunchedEffect(s) {
+                            withContext(Dispatchers.Main.immediate) {
+                                lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                                    val result = Intake.accept(launchSource(intent))
+                                    if (screen == s && !isDestroyed) {
+                                        screen = presentIntake(result)?.let(Screen::Confirm) ?: Screen.Library
+                                    }
+                                }
+                            }
+                        }
+                    }
                     is Screen.Library -> LibraryScreen(
                         syncState = syncState,
                         onOpen = { o ->
@@ -170,7 +192,12 @@ class SottoActivity : ComponentActivity() {
                         onAccount = if (sync != null) ({ screen = Screen.Account }) else null,
                         onLibrary = if (sync != null) ({ refreshLibrary() }) else null)
                     is Screen.Compose -> ComposeScreen(
-                        onContinue = { text -> accepted(text)?.let { screen = Screen.Confirm(it) } },
+                        onContinue = { text ->
+                            val result = Intake.accept(Intake.Source.Text(text))
+                            if (screen == s && !isDestroyed) {
+                                presentIntake(result)?.let { screen = Screen.Confirm(it) }
+                            }
+                        },
                         onBack = { screen = Screen.Library })
                     is Screen.Confirm -> ConfirmScreen(s.text, syncState = syncState,
                         onDone = { screen = Screen.Library })
@@ -182,33 +209,28 @@ class SottoActivity : ComponentActivity() {
         }
     }
 
-    /** PRD F1: shared text, a shared text file, or a .md/.txt opened with Sotto.
-     *  Files decode leniently (Intake.read), so any encoding narrates. */
-    private fun sharedText(i: Intent?): String? {
+    private fun launchSource(i: Intent?): Intake.Source {
         val uri = when (i?.action) {
-            Intent.ACTION_SEND -> i.getStringExtra(Intent.EXTRA_TEXT)?.let { return accepted(it) }
+            Intent.ACTION_SEND -> i.getStringExtra(Intent.EXTRA_TEXT)?.let { return Intake.Source.Text(it) }
                 ?: IntentCompat.getParcelableExtra(i, Intent.EXTRA_STREAM, Uri::class.java)
             Intent.ACTION_VIEW -> i.data
-            else -> return null
-        } ?: return accepted("")
-        return readShared(uri)?.let(::accepted) ?: null.also {
-            Toast.makeText(this, "Couldn't read that file", Toast.LENGTH_LONG).show()
-        }
+            else -> null
+        } ?: return Intake.Source.Text("")
+        val resolver = applicationContext.contentResolver
+        return Intake.Source.Stream { resolver.openInputStream(uri) }
     }
 
-    private fun readShared(uri: Uri): String? =
-        runCatching { contentResolver.openInputStream(uri)?.use(Intake::read) }.getOrNull()
-
-    /** PRD F2 and the empty-share edge case: refuse with a clear message and
-     *  create no entry. */
-    private fun accepted(raw: String): String? = when (val c = Intake.check(raw)) {
-        is Intake.Checked.Ok -> c.text
-        Intake.Checked.Empty -> null.also {
+    private fun presentIntake(result: Intake.Result): String? = when (result) {
+        is Intake.Result.Accepted -> result.text
+        Intake.Result.Empty -> null.also {
             Toast.makeText(this, "Nothing to narrate - the text was empty", Toast.LENGTH_LONG).show()
         }
-        is Intake.Checked.TooLarge -> null.also {
-            Toast.makeText(this, "Too long to narrate: ${c.bytes / 1024} KB (the limit is 400 KB)",
+        Intake.Result.TooLarge -> null.also {
+            Toast.makeText(this, "Too long to narrate - the limit is 400 KB",
                 Toast.LENGTH_LONG).show()
+        }
+        Intake.Result.Unreadable -> null.also {
+            Toast.makeText(this, "Couldn't read that file", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -386,6 +408,9 @@ class SottoActivity : ComponentActivity() {
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Cancel") }
+                Spacer(Modifier.height(16.dp))
+                RubricHeader("Text")
+                Text(text, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
@@ -407,8 +432,10 @@ class SottoActivity : ComponentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    private fun ComposeScreen(onContinue: (String) -> Unit, onBack: () -> Unit) {
-        var text by remember { mutableStateOf("") }
+    private fun ComposeScreen(onContinue: suspend (String) -> Unit, onBack: () -> Unit) {
+        var text by rememberSaveable { mutableStateOf("") }
+        var pending by remember { mutableStateOf(false) }
+        val scope = rememberCoroutineScope()
         val words = remember(text) {
             text.trim().let { if (it.isEmpty()) 0 else it.split(Regex("\\s+")).size }
         }
@@ -418,7 +445,7 @@ class SottoActivity : ComponentActivity() {
         }) { pad ->
             Column(Modifier.padding(pad).padding(16.dp).fillMaxSize()) {
                 OutlinedTextField(
-                    value = text, onValueChange = { text = it },
+                    value = text, onValueChange = { text = it }, enabled = !pending,
                     label = { Text("Paste or type what Sotto should read") },
                     placeholder = { Text("# Markdown welcome\n\nHeadings get pauses; links and tables are read for the ear.") },
                     modifier = Modifier.fillMaxWidth().weight(1f))
@@ -426,7 +453,18 @@ class SottoActivity : ComponentActivity() {
                 Text(if (words == 0) "Nothing yet" else "$words words",
                     style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(8.dp))
-                Button(onClick = { onContinue(text) }, enabled = words > 0,
+                Button(onClick = {
+                    if (pending) return@Button
+                    pending = true
+                    val submitted = text
+                    scope.launch(Dispatchers.Main.immediate) {
+                        try {
+                            onContinue(submitted)
+                        } finally {
+                            pending = false
+                        }
+                    }
+                }, enabled = words > 0 && !pending,
                     modifier = Modifier.fillMaxWidth()) { Text("Continue") }
             }
         }

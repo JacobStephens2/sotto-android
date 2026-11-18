@@ -101,6 +101,11 @@ src/testSync/  sync-flavor JVM suites (`SottoApiContractTest`,
   at the technical layer.)
 - Errors: engine functions return sealed results for expected failures
   (storage full, model load failure); exceptions are reserved for bugs.
+- Document intake callers submit `Intake.Source.Text` or a deferred
+  `Intake.Source.Stream` to `accept`; they never open, decode, then validate
+  files themselves. Keep URI/Intent/Toast knowledge in the shell and preserve
+  cancellation and unexpected failures. Publication keeps its pure defensive
+  String check and never suspends for file intake under its monitor.
 - Comments: explain *why*, in the style of app.py's section comments - one
   plain sentence above the non-obvious block. No doc-comment boilerplate on
   self-evident functions.

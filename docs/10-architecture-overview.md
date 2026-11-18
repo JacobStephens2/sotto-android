@@ -144,8 +144,22 @@ share sheet / file open / paste
   media owner, so gate reset and library deletion stop that playback too.
   Leaving Lab detaches and fences callbacks immediately; retained cleanup
   drains blocking work off-main.
+- **Document intake** - `engine/text/Intake.accept` receives typed text or a
+  deferred stream opener and returns Accepted, Empty, TooLarge, or Unreadable.
+  It owns IO dispatch, replacement UTF-8 decoding, one initial file BOM,
+  Kotlin trimming, the normalized 409,600-byte cap, and closure, including
+  cancellation. Fixed decoder buffers plus bounded content/pending whitespace
+  preserve complete-document semantics without retaining unbounded surrounding
+  whitespace. EOF discards pending trailing whitespace; later content makes it
+  interior and can establish TooLarge early. The synchronous String validator
+  remains the defensive check inside Oration publication's monitor.
 - **UI** - four screens (Confirm, Player, Library, About), Material 3, single
-  activity, Navigation-Compose. Share intents land on Confirm. Confirm disables
+  activity. Share intents first render Reading, then accepted input lands on
+  Confirm. Only an unfinished saved Reading state reopens the launch input;
+  restored Confirm and other screens skip intake. Deferred openers retain the
+  application ContentResolver and URI. Composition/lifecycle cancellation and
+  screen identity fence abandoned requests. Write uses the same intake operation,
+  disables pending Continue, and keeps rejected text. Confirm disables
   repeated local submission while awaiting creation off-main. A typed failure
   stays on Confirm with its text, name, and voice available for retry. Only a
   successful creation sends the ID-only non-exported narrate command and returns

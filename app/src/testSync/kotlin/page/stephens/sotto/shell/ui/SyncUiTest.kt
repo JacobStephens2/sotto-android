@@ -258,7 +258,7 @@ class SyncUiTest {
         }
 
         ActivityScenario.launch<SottoActivity>(sendIntent).use { scenario ->
-            compose.waitForIdle()
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("Name").fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText("New oration").assertIsDisplayed()
             compose.onNodeWithText("Narrate on the server (OpenAI)").performClick()
             compose.waitForIdle()
@@ -304,6 +304,7 @@ class SyncUiTest {
                 putExtra(Intent.EXTRA_TEXT, "Hello world.")
             },
         ).use {
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("Name").fetchSemanticsNodes().isNotEmpty() }
             val bounds = compose.onNodeWithText("Narrate on the server (OpenAI)").fetchSemanticsNode().boundsInRoot
             val heightDp = with(compose.density) { bounds.height.toDp() }
             assertTrue("Switch row height $heightDp < 48.dp", heightDp >= 48.dp)
