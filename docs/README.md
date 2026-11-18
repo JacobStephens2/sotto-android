@@ -39,6 +39,7 @@ Paths are relative to `app/src/main/kotlin/page/stephens/sotto/`.
 
 | Concern | Start here |
 |---|---|
+| Complete shared, opened, and typed Document intake | `engine/text/Intake.kt`, `shell/ui/SottoActivity.kt` |
 | Ordinary admission, Stop, deletion, attachment, and retained ownership | `engine/narrate/NarrationCoordinator.kt` |
 | Shared ordinary/gate source, lifecycle, chunk metadata, sink closure, and outcomes | `engine/narrate/OrationNarration.kt` |
 | Durable chunk execution and resume | `engine/narrate/NarrationEngine.kt` |
@@ -55,6 +56,9 @@ Paths are relative to `app/src/main/kotlin/page/stephens/sotto/`.
 For ownership changes, read [ADR-009](adr/ADR-009-retained-narration-ownership.md)
 and [ADR-010](adr/ADR-010-serialize-oration-publication.md), then the interface
 tests before following private control or execution details.
+For input changes, start with `IntakeTest` and `DocumentIntakeTest`: the engine
+owns complete bounded decoding, normalization, validation, and stream lifetime;
+the Activity owns input metadata, presentation, cancellation, and restoration.
 Issues #15 and #16 cover ordinary and diagnostic callers through the same
 retained worker. Lab owns neither a model nor an inference executor.
 Issue #22 consolidates their durable execution behind an internal operation;

@@ -5,6 +5,11 @@ to on their device.
 
 ## Language
 
+**Document intake**:
+Conversion of shared, opened, or typed input into complete normalized,
+size-validated document text before Oration publication.
+_Avoid_: Raw read-then-check
+
 **Oration**:
 A library item containing a document's narration, title, voice, progress, and
 listening position. Its audio can be queued, partial, complete, or available

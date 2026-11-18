@@ -1,5 +1,33 @@
 # _state.md - sotto-android session handoff
 
+2026-11-18: Issue #30 deepens Document intake behind `Intake.accept`, taking
+typed text or a deferred stream opener and returning Accepted, Empty, TooLarge,
+or Unreadable. IO dispatch owns opening, bounded replacement decoding, Kotlin
+trimming, normalized UTF-8 size validation, and closure. Pending whitespace
+remains undecided until EOF or later content; accepted text is never a capped
+prefix. Direct-text BOM policy and publication's synchronous defensive String
+check remain unchanged. No new ADR is needed within the existing engine/shell
+boundary; no manifest, schema, model, network, or text-pipeline changes.
+
+SottoActivity renders Reading before launch-file work, fences delivery by screen
+and lifecycle, and restarts only saved unfinished intake. Completed Confirm and
+other restored screens skip validation and messages. Write prevents duplicate
+Continue, retains rejected text, and shares the operation. Confirm displays the
+complete accepted text and preserves existing creation and sync behavior.
+
+The baseline regression failed with `java.lang.AssertionError`:
+
+```sh
+JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew testLocalDebugUnitTest --tests '*IntakeTest.interior whitespace beyond the read buffer cannot hide the tail' -Proborazzi.record=false --console=plain
+```
+
+Targeted intake and Activity/Confirm creation suites pass, including blocked
+resolver reads, Back, old success/failure after recreation, complete Confirm
+restoration, failures, and Write rejection/double submission. Both-flavor final
+JVM/lint validation and independent review are pending. No connected Android
+device is available (`adb devices -l` empty); no headless browser is installed
+for native Android visual evidence. No hardware performance claim is made.
+
 2026-11-17: Issue #28 deepens creation into `OrationPublication`, manually shared
 by ordinary creation, gate preparation, the Narration worker, and sync. One
 private monitor covers final-file mutation, matching Room commits, pre-commit
