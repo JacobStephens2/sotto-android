@@ -2,7 +2,6 @@ package page.stephens.sotto.shell.playback
 
 import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
 import android.os.Bundle
 import androidx.annotation.OptIn
 import androidx.core.content.ContextCompat
@@ -456,22 +455,15 @@ internal class InAppPlayerCommands(context: Context) : PlayerCommands {
     private val app = context.applicationContext
 
     override fun play(id: String) {
-        send(InAppNarrationService.ACTION_PLAY, id = id)
+        InAppNarrationService.dispatch(app, InAppNarrationService.ACTION_PLAY, id = id)
     }
 
     override fun sleepTimer(minutes: Int) {
-        send(InAppNarrationService.ACTION_SLEEP_TIMER, minutes = minutes)
+        InAppNarrationService.dispatch(app, InAppNarrationService.ACTION_SLEEP_TIMER, minutes = minutes)
     }
 
     override fun stopNarration() {
-        send(InAppNarrationService.ACTION_STOP_NARRATION)
-    }
-
-    private fun send(action: String, id: String? = null, minutes: Int? = null) {
-        app.startService(Intent(app, InAppNarrationService::class.java).setAction(action).apply {
-            id?.let { putExtra(InAppNarrationService.EXTRA_ID, it) }
-            minutes?.let { putExtra(InAppNarrationService.EXTRA_MINUTES, it) }
-        })
+        InAppNarrationService.dispatch(app, InAppNarrationService.ACTION_STOP_NARRATION)
     }
 }
 

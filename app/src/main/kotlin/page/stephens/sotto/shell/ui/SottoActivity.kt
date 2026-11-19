@@ -236,10 +236,7 @@ class SottoActivity : ComponentActivity() {
     }
 
     private fun svc(action: String, id: String? = null, minutes: Int? = null) =
-        startService(Intent(this, InAppNarrationService::class.java).setAction(action).apply {
-            id?.let { putExtra(InAppNarrationService.EXTRA_ID, it) }
-            minutes?.let { putExtra(InAppNarrationService.EXTRA_MINUTES, it) }
-        })
+        InAppNarrationService.dispatch(this, action, id, minutes)
 
     private fun openOration(o: OrationEntity) = when (o.status) {
         "QUEUED", "STOPPED", "ERROR" -> svc(InAppNarrationService.ACTION_NARRATE, o.id)

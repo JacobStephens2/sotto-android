@@ -5,6 +5,7 @@ package page.stephens.sotto.shell.service
 // Media3 session, and it does not accept these actions (ADR-008).
 
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 
@@ -31,6 +32,18 @@ class InAppNarrationService : Service() {
         const val ACTION_DELETE = "page.stephens.sotto.DELETE"
         const val EXTRA_ID = "orationId"
         const val EXTRA_MINUTES = "minutes"
+
+        internal fun dispatch(
+            context: Context,
+            action: String,
+            id: String? = null,
+            minutes: Int? = null,
+        ) {
+            context.startService(Intent(context, InAppNarrationService::class.java).setAction(action).apply {
+                id?.let { putExtra(EXTRA_ID, it) }
+                minutes?.let { putExtra(EXTRA_MINUTES, it) }
+            })
+        }
 
         internal fun commandOf(intent: Intent?): InAppCommand? {
             val action = intent?.action ?: return null

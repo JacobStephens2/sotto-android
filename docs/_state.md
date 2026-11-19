@@ -19,8 +19,11 @@ invokes `onDeletionFenced` inside `beginDeletion` (wired in
 unattached Lab `ResetGate` clears cached positions without eager startup.
 Updated `GLOSSARY.md`, `docs/README.md`, `docs/02-prd.md`,
 `docs/10-architecture-overview.md`, `docs/30-testing-plan.md`,
-`docs/40-code-style.md`, and `docs/tasks.md`; no new ADR, manifest permission,
-Room schema, model, network, or text-pipeline change.
+`docs/40-code-style.md`, and `docs/tasks.md` (with follow-up review fixes
+unifying `InAppNarrationService.dispatch` across `InAppPlayerCommands` and
+`SottoActivity.svc`, and scoping the `docs/40-code-style.md` `source.md` /
+`MediaController` rule specifically to `PlayerScreen`); no new ADR, manifest
+permission, Room schema, model, network, or text-pipeline change.
 
 Before the fixes, the baseline tests failed in Red as expected (`OrationPlaybackTest`
 lines 564/579 `AssertionError`, `NarrationCommandsTest` line 569 `AssertionError`,
@@ -41,7 +44,8 @@ unit tests across 21 suites passed (0 failures, 0 errors, 0 skips; including 6 n
 `OrationPlaybackTest` tests, 2 added `NarrationCommandsTest` tests, and all 7
 `IlluminatedScreenshotTest` Roborazzi verifications). Android lint passed with
 0 errors on both flavors (29 baseline warnings on `localDebug`, 31 baseline
-warnings on `syncDebug`; 0 warnings in changed files). All APKs built cleanly
+warnings on `syncDebug`; 0 introduced warnings, with 1 pre-existing baseline
+`SimpleDateFormat` warning at `SottoActivity.kt:907`). All APKs built cleanly
 (`sotto-local-0.4.10-debug.apk`, `sotto-sync-0.4.10-debug.apk`,
 `app-local-debug-androidTest.apk`, `sotto-local-0.4.10-release.apk`, and
 `sotto-sync-0.4.10-release.apk`), and `aapt dump permissions` confirmed `local`

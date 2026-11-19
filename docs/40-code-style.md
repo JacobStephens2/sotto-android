@@ -95,8 +95,8 @@ src/testSync/  sync-flavor JVM suites (`SottoApiContractTest`,
   the previous writer and model to drain off-main.
 - Client `PlayerScreen` UI talks only to `OrationPlayer` (with internal
   `PlayerTransport` and `PlayerCommands` seams and `OrationPlayer.setFactoryForTest`);
-  Activities never own `MediaController` builders, polling loops, sleep-chip
-  mirrors, or `source.md` file reads. Isolate high-frequency `PlaybackTimeline`
+  `PlayerScreen` never owns `MediaController` builders, polling loops,
+  sleep-chip mirrors, or `source.md` file reads. Isolate high-frequency `PlaybackTimeline`
   collection in a leaf `PlayerTimeline` composable, keep `Slider` drag state
   local until `onValueChangeFinished`, and keep `AndroidView` `update` blocks in
   `DropCapText` idempotent across repeated recompositions.
