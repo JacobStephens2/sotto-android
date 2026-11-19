@@ -37,6 +37,7 @@ internal class SavedOrationPlayback(
     private var refreshing = false
     private var sleepVersion = 0L
     private var sleepJob: Job? = null
+    private var publishedSleepMinutes: Int? = null
 
     private data class Resolved(val audio: SavedAudio, val positionMs: Long)
 
@@ -122,8 +123,8 @@ internal class SavedOrationPlayback(
     }
 
     override fun stopForDeletion(id: String) {
-        val player = output ?: return
         persistence.invalidate(id)
+        val player = output ?: return
         if (pendingExplicit == id) {
             ++requestVersion
             pendingExplicit = null
@@ -135,16 +136,25 @@ internal class SavedOrationPlayback(
     }
 
     override fun sleep(minutes: Int) {
-        if (output == null) return
+        val currentOutput = output ?: return
         val version = ++sleepVersion
         sleepJob?.cancel()
         sleepJob = null
-        if (minutes <= 0) return
+        if (minutes <= 0) {
+            publishedSleepMinutes = null
+            currentOutput.publishSleepTimer(null)
+            return
+        }
+        publishedSleepMinutes = minutes
+        currentOutput.publishSleepTimer(minutes)
         sleepJob = scope.launch {
             withContext(clockDispatcher) { delay(minutes * 60_000L) }
             if (version != sleepVersion) return@launch
             val player = output ?: return@launch
+            sleepJob = null
+            publishedSleepMinutes = null
             player.pause()
+            player.publishSleepTimer(null)
             persistence.sleepAccepted(minutes)
         }
     }
@@ -152,6 +162,10 @@ internal class SavedOrationPlayback(
     override fun close(): Deferred<Unit> {
         closed?.let { return it }
         observe()
+        if (publishedSleepMinutes != null) {
+            publishedSleepMinutes = null
+            output?.publishSleepTimer(null)
+        }
         output = null
         selected = null
         pendingExplicit = null

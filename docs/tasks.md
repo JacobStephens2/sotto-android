@@ -5,7 +5,28 @@ coordination share retained process-wide ownership (issues #15-16, #24).
 Oration publication shares final-file ownership (issue #28). Document intake
 owns complete validation (issue #30). Exported MediaSession authorization
 restricts controllers across `onGetSession` and `onConnect` (issue #32).
-Updated 2026-11-18.
+PlayerScreen delegates to client `OrationPlayer` with MediaSession parity and
+unattached deletion invalidation (issue #34).
+Updated 2026-11-19.
+
+## Client Oration player (issue #34)
+
+- [x] Introduce client `OrationPlayer` facade (`shell/playback/OrationPlayer.kt`)
+      behind internal `PlayerTransport` and `PlayerCommands` seams with
+      `OrationPlayer.setFactoryForTest` and discrete/timeline state flows
+- [x] Enforce cross-Oration isolation (`seekTo`, `skipBack`/`skipForward`, `setSpeed`,
+      active `pause`, gated `ACTION_PLAY`), `STATE_ENDED` catching-up vs replay,
+      pre-load position/duration synthesis, and active-only 250 ms ticking
+- [x] Configure `15,000 ms` ExoPlayer skip increments, publish sleep-timer
+      extras into `MediaSession.setSessionExtras`, and invalidate
+      `PlaybackPersistence` on closing-owner `stopForDeletion` and unattached
+      Lab `ResetGate`
+- [x] Refactor `PlayerScreen` to `OrationPlayer`, leaf `PlayerTimeline` with
+      scrub-on-release, scrollable body, and `Missing` view; make `DropCapText`
+      updates idempotent across unchanged inputs while applying color/size changes
+- [x] Cover contracts in `OrationPlayerTest`, `PlayerScreenTest`,
+      `OrationPlaybackTest`, and `NarrationCommandsTest`; update docs and verify
+      both flavors' lint, tests, Roborazzi goldens, APKs, and manifest guards
 
 ## Exported MediaSession authorization (issue #32)
 

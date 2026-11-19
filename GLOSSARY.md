@@ -37,3 +37,11 @@ _Avoid_: Player, playback session
 The Android-owner-scoped control of saved Oration audio, its listening position,
 growing-audio catch-up, and sleep deadline. It does not own the Narration worker.
 _Avoid_: Narration worker, synthesis owner
+
+**Oration player**:
+The UI-scoped client controller (`OrationPlayer`) behind the Player screen that
+combines saved Oration state, Media3 playback snapshots, session sleep extras,
+source text, and an active-only playhead timeline. It enforces cross-Oration
+isolation and delegates commands without owning the MediaSession or narration
+worker.
+_Avoid_: MediaController polling loop, Oration playback owner

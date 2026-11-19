@@ -113,6 +113,9 @@ share sheet / file open / paste
   `PackageManager.getPackagesForUid` when resolvable and `uid != SYSTEM_UID`),
   while `onGetSession` keeps returning the session for negative-UID internal
   `MediaSessionService` intents and rejecting all other controllers.
+  `ExoPlayer.Builder` configures `15,000 ms` seek-back and seek-forward
+  increments, and `Media3PlaybackOutput` publishes active sleep-timer state
+  into `MediaSession.setSessionExtras`.
 - **InAppNarrationService** - not exported, no intent-filter. The UI starts it
   for narrate, play, stop narration, the sleep timer, and delete. It hands
   those to `NarrationService` inside the process. Another app cannot start it.
@@ -122,7 +125,9 @@ share sheet / file open / paste
   `play(id)`, saved-row `listenNow`, `stopForDeletion(id)`, `sleep(minutes)`, and
   `close()`. The service still constructs/releases ExoPlayer and MediaSession;
   a narrow Media3 output adapter observes identity, position, ended state,
-  intent, and speed together on the player thread. The module owns the two-second
+  intent, and speed together on the player thread and publishes active sleep
+  minutes via `publishSleepTimer` on arm, replace, cancel, expiration, and close.
+  The module owns the two-second
   governor, selection ordering, durable-byte frontier, deletion epochs, and
   timer tokens. Room reads and file checks happen off-main. Latest explicit
   acceptance wins, even if unavailable; listen-now needs neither a selection
@@ -130,7 +135,9 @@ share sheet / file open / paste
   leaves existing media intact. Ended audio reloads only for durable growth,
   including the worker's final tail, preserving current position, speed, and
   pause intent after revalidation; a seek away from the frontier wins.
-  Deletion synchronously fences pending work and clears matching media; facts
+  Deletion synchronously invalidates `PlaybackPersistence` (even when `output` is
+  already released on close), fences pending work, and clears matching media;
+  facts
   prevent admission during removal while epochs allow later gate recreation.
   A private application-scoped FIFO accepts immutable positive-position
   observations, including close, across replacement owners. Each write checks
@@ -138,11 +145,31 @@ share sheet / file open / paste
   Latest accepted primitive positions also supply selection while Room writes
   drain, so switching back or replacing an owner cannot restore a stale position.
   Deletion forgets those positions along with advancing the epoch.
+  `NarrationCoordinator` also accepts an `onDeletionFenced` callback invoked inside
+  `beginDeletion` (wired to `PlaybackPersistence::invalidateShared`), so
+  unattached Lab `ResetGate` clears cached positions without forcing eager
+  persistence startup.
   Close synchronously fences effects and releases the output, then returns an
   awaitable FIFO drain without joining on the player thread. Accepted sleep
   deadlines pause once and enqueue a local log off-main; replacement, cancel,
   and close invalidate unaccepted deadlines. Storage failures are contained
   and locally logged. No playback responsibility moves into the Narration worker.
+- **Oration player** - client UI facade (`OrationPlayer` behind `PlayerTransport`
+  and `PlayerCommands` in `shell/playback/OrationPlayer.kt`) scoped to one
+  open Player screen. It observes Room `byIdFlow(id)`, `PlaybackPersistence`,
+  `source.md` loading/reload on download flip, Media3 `Player.Listener.onEvents`,
+  and `MediaController.Listener` (`onExtrasChanged` / `onDisconnected`). It emits
+  discrete `OrationPlayerState` (`Loading`, `Missing`, `Ready`) and high-frequency
+  `PlaybackTimeline(positionMs, durationMs)`. Pre-load and `TIME_UNSET` frames
+  resolve position from `PlaybackPersistence.resumePosition` and duration from
+  `audioDurationMs` or `(audioBytes * 8L) / 64L`, clamped to valid bounds.
+  Mutations (`seekTo`, `skipBack` via `seekBack()`, `skipForward` via
+  `seekForward()`, `setSpeed`, active `pause`) apply only when `connected &&
+  mediaId == id`; `togglePlayPause` on non-loaded rows dispatches `ACTION_PLAY`
+  only when local audio exists, and `STATE_ENDED && status == "NARRATING"`
+  preserves catching-up mode rather than seeking to zero. An active-only 250 ms
+  playhead ticker runs only while loaded and playing and stops immediately on
+  pause, `STATE_ENDED`, item switch, disconnect, `Missing`, or `close()`.
 - **Lab** - attaches to the same coordinator with typed gate, measurement,
   thread configuration, Stop, and reset requests. It displays Busy when ordinary
   work is active or queued. Lab retains controls, PCM playback, progress, and
@@ -171,7 +198,14 @@ share sheet / file open / paste
   stays on Confirm with its text, name, and voice available for retry. Only a
   successful creation sends the ID-only non-exported narrate command and returns
   to Library. If the UI disappears before delivery, the committed QUEUED row
-  remains available for ordinary pickup by an attached owner.
+  remains available for ordinary pickup by an attached owner. `PlayerScreen`
+  creates and disposes one `OrationPlayer` per Oration ID, collects discrete
+  `OrationPlayerState` (`Loading`, `Missing`, `Ready`) without Activity-owned
+  `MediaController` polling loops, and isolates `PlaybackTimeline` updates in
+  a leaf `PlayerTimeline` composable where `Slider` holds local drag state
+  until release (`onValueChangeFinished`). `DropCapText` keys updates on
+  `(text, capArgb, bodyArgb, bodySizeSp, lines)` so repeated recompositions are
+  idempotent while body color/size changes apply cleanly.
 
 ### Sync (`shell/sync/` interface, `src/sync/` implementation)
 

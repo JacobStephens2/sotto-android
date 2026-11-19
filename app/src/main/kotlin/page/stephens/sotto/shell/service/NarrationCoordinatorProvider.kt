@@ -10,6 +10,7 @@ import page.stephens.sotto.engine.narrate.ManagedSynthesizerFactory
 import page.stephens.sotto.engine.narrate.NarrationCoordinator
 import page.stephens.sotto.engine.store.OrationPublication
 import page.stephens.sotto.engine.store.SottoDatabase
+import page.stephens.sotto.shell.playback.PlaybackPersistence
 import page.stephens.sotto.shell.synth.AdtsAacEncoder
 import page.stephens.sotto.shell.synth.SherpaSynthesizer
 import java.io.File
@@ -50,6 +51,7 @@ internal object NarrationCoordinatorProvider {
                         it.totalPss.toLong()
                     }
                 },
+                onDeletionFenced = PlaybackPersistence::invalidateShared,
             ).also { instance = it }
         }
     }

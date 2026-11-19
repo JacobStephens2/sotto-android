@@ -1,5 +1,57 @@
 # _state.md - sotto-android session handoff
 
+2026-11-19: Issue #34 deepens client Oration playback behind `OrationPlayer`
+(`shell/playback/OrationPlayer.kt`) with internal `PlayerTransport` and
+`PlayerCommands` seams and `OrationPlayer.setFactoryForTest`, configures
+`15,000 ms` ExoPlayer skip increments, publishes `OrationPlayback` sleep-timer
+state into `MediaSession.setSessionExtras`, and closes remaining deletion
+invalidation gaps. `PlayerScreen` collects discrete `OrationPlayerState`
+(`Loading`, `Missing`, `Ready`), isolates `PlaybackTimeline` updates in a leaf
+`PlayerTimeline` composable with local `Slider` drag state released via
+`onValueChangeFinished`, renders `PlayerScaffold` cleanly with vertical scrolling
+across viewports, and disposes via `OrationPlayer.close()`. `DropCapText` keys
+updates on `(text, capArgb, bodyArgb, bodySizeSp, lines)` to skip redundant
+span creation while applying `bodyColor` and `bodySizeSp` changes. On deletion,
+closed-owner `SavedOrationPlayback.stopForDeletion` invalidates
+`PlaybackPersistence` before `output ?: return`, and `NarrationCoordinator`
+invokes `onDeletionFenced` inside `beginDeletion` (wired in
+`NarrationCoordinatorProvider` to `PlaybackPersistence::invalidateShared`) so
+unattached Lab `ResetGate` clears cached positions without eager startup.
+Updated `GLOSSARY.md`, `docs/README.md`, `docs/02-prd.md`,
+`docs/10-architecture-overview.md`, `docs/30-testing-plan.md`,
+`docs/40-code-style.md`, and `docs/tasks.md`; no new ADR, manifest permission,
+Room schema, model, network, or text-pipeline change.
+
+Before the fixes, the baseline tests failed in Red as expected (`OrationPlaybackTest`
+lines 564/579 `AssertionError`, `NarrationCommandsTest` line 569 `AssertionError`,
+`OrationPlayerTest` `ClassCastException` and assertion failures per slice through
+line 410, and `PlayerScreenTest` `AssertionError` at line 97 and unmocked
+`rememberController` NPE at line 378).
+
+After the final code edits, full CI-equivalent verification, release APK builds,
+and screenshot verification passed cleanly:
+
+```sh
+PATH=/home/jacob/.local/jdk/jdk-21.0.12.1+1/bin:$PATH JAVA_HOME=/home/jacob/.local/jdk/jdk-21.0.12.1+1 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew --no-daemon lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest assembleLocalDebug assembleSyncDebug assembleLocalDebugAndroidTest assembleLocalRelease assembleSyncRelease -Proborazzi.record=false -Proborazzi.verify=true --console=plain
+```
+
+Observed results: 180 `localDebug` unit tests across 18 suites and 212 `syncDebug`
+unit tests across 21 suites passed (0 failures, 0 errors, 0 skips; including 6 new
+`OrationPlayerTest` tests, 3 new `PlayerScreenTest` tests, 2 added
+`OrationPlaybackTest` tests, 2 added `NarrationCommandsTest` tests, and all 7
+`IlluminatedScreenshotTest` Roborazzi verifications). Android lint passed with
+0 errors on both flavors (29 baseline warnings on `localDebug`, 31 baseline
+warnings on `syncDebug`; 0 warnings in changed files). All APKs built cleanly
+(`sotto-local-0.4.10-debug.apk`, `sotto-sync-0.4.10-debug.apk`,
+`app-local-debug-androidTest.apk`, `sotto-local-0.4.10-release.apk`, and
+`sotto-sync-0.4.10-release.apk`), and `aapt dump permissions` confirmed `local`
+debug/release APKs have no `INTERNET` or `ACCESS_NETWORK_STATE` while `sync`
+debug/release APKs add `INTERNET` only. No `ktlintCheck` task exists in this
+repo (tracked under issue #7); no connected Android device is attached
+(`adb devices -l` empty), `emulator -accel-check` exits 11 (`/dev/kvm` permission
+denied), no headless browser is installed for native Android visual evidence, and
+no hardware performance claim is made.
+
 2026-11-18: Issue #32 restricts `NarrationService` MediaSession controller access
 across both `onGetSession` and `MediaSession.Callback.onConnect` (installed via
 `MediaSession.Builder.setCallback`) using one controller authorization check.

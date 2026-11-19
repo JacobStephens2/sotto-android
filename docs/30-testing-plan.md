@@ -147,12 +147,26 @@ positions/logs, and drain completion rather than private epochs, jobs, or queues
 Hold accepted writes across a return to the previous Oration and owner
 replacement; selection must restore the latest accepted position before drain.
 Keep actual Media3 command-entry, sleep, exported rejection, deletion, Lab
-reset, and `MediaSession` controller authorization checks (same-UID, verified
+reset (including unattached `ResetGate` clearing `PlaybackPersistence`),
+real `MediaController` `15,000 ms` skip increments and `sessionExtras` sleep sync,
+and `MediaSession` controller authorization checks (same-UID, verified
 trusted including `SYSTEM_UID` and unresolvable UID packages, negative-UID
 internal `MediaSessionService` intents in `onGetSession`, and untrusted or
 UID-mismatched rejection across `onGetSession` and `MediaSession.Callback.onConnect`
 with notification and `InAppNarrationService` behavior retained) alongside these
-contracts, and independent durability/sync tests.
+contracts, and independent durability/sync tests. Also verify closed-owner
+`stopForDeletion` invalidation and sleep-timer `sessionExtras` publication across
+arm, replace, cancel, expiration, and close in `OrationPlaybackTest`.
+`OrationPlayerTest` covers `SavedOrationPlayer` against real Room/temp `source.md`/
+`PlaybackPersistence` with controlled `PlayerTransport`/`PlayerCommands` for pre-load
+timeline synthesis, source reload on download flip, cross-Oration isolation,
+`STATE_ENDED` catching-up vs zero replay, sleep-timer extras sync, active-only
+250 ms ticker lifecycles, `Missing` cleanup, and cancellation on close.
+`PlayerScreenTest` covers `DropCapText` idempotent updates (`bodyColor`/`bodySizeSp`/text)
+and `PlayerScreen` Robolectric Compose behavior via `OrationPlayer.setFactoryForTest`
+(pre-load display, `PlayerTimeline` leaf isolation, scrub-on-release touch and
+`SetProgress`, transport/speed/sleep delegation, catching-up/stop-narration,
+`Missing` view, and `close()` on Back).
 `DiagnosticResumeTest` exercises Room, real ADTS encoding, shared gate ownership,
 reset, legacy source fallback, process recovery, and byte-identical resume with
 crash garbage. Existing Room resume/migration instrumentation remains required.

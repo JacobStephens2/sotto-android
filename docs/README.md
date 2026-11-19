@@ -48,8 +48,10 @@ Paths are relative to `app/src/main/kotlin/page/stephens/sotto/`.
 | Audio append, truncate, and fsync | `engine/store/FileAudioSink.kt` |
 | Manual process-wide wiring and managed production model | `shell/service/NarrationCoordinatorProvider.kt` |
 | Android media resources, attachment, and command delegation | `shell/service/NarrationService.kt` |
+| Client Oration player facade, Media3 transport/command adapters, and timeline | `shell/playback/OrationPlayer.kt` |
 | Oration playback selection, listen-now, catch-up, deletion, sleep, and close | `shell/playback/OrationPlayback.kt`, `shell/playback/SavedOrationPlayback.kt` |
 | Media3 output and application-scoped position FIFO | `shell/playback/PlaybackOutput.kt`, `shell/playback/PlaybackPersistence.kt` |
+| Drop-cap read-along text rendering | `shell/ui/DropCapText.kt` |
 | Non-exported in-app command routing | `shell/service/InAppNarrationService.kt` |
 | Typed Lab requests and measurements | `engine/narrate/Diagnostics.kt`, `engine/narrate/DiagnosticExecution.kt`, `spike/MainActivity.kt` |
 
@@ -75,6 +77,14 @@ for promotion/rollback/removal ordering; `SyncCoordinatorTest` retains the accou
 replacement race with explicit file-placement and Room barriers. Production
 construction in `src/sync/.../SyncFactory.kt` uses the same process publication
 instance as the Narration worker and ordinary creation.
+Issue #34 isolates UI playback behind `OrationPlayer` and moves timeline updates
+into a leaf composable in `PlayerScreen`. Start with `OrationPlayerTest` for
+Room/Media3 composition, pre-load position/duration synthesis, cross-Oration
+command isolation, sleep extras parity, active-only ticking, and cancellation;
+`PlayerScreenTest` covers `DropCapText` idempotency and `PlayerScreen` UI
+behavior through `OrationPlayer.setFactoryForTest`, while `OrationPlaybackTest`
+and `NarrationCommandsTest` cover sleep-timer extras, 15,000 ms MediaSession
+skips, and closing-owner/unattached deletion invalidation.
 
 ## Deliberately skipped
 

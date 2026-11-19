@@ -1,12 +1,11 @@
 package page.stephens.sotto.shell.ui
 
 // Phase 3 surface (docs/03-roadmap.md): Library with detail actions (rename,
-// delete, source text, export via SAF), a Player screen over a MediaController
+// delete, source text, export via SAF), a Player screen over an OrationPlayer
 // (speed, sleep timer, 15s skips, catching-up state), voice picker with bundled
 // previews, calibrated narration estimate, and About (provenance + job log).
 // Stock Material 3 throughout (41-design-system.md).
 
-import android.content.ComponentName
 import android.content.Intent
 import android.media.MediaPlayer
 import android.net.Uri
@@ -23,6 +22,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,6 +38,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -65,18 +66,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.media3.common.Player
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import page.stephens.sotto.engine.store.JobLog
@@ -86,8 +85,10 @@ import page.stephens.sotto.engine.store.OrationEntity
 import page.stephens.sotto.engine.store.SottoDatabase
 import page.stephens.sotto.engine.text.Intake
 import page.stephens.sotto.engine.text.Titles
+import page.stephens.sotto.shell.playback.OrationPlayer
+import page.stephens.sotto.shell.playback.OrationPlayerState
+import page.stephens.sotto.shell.playback.PlaybackTimeline
 import page.stephens.sotto.shell.service.InAppNarrationService
-import page.stephens.sotto.shell.service.NarrationService
 import page.stephens.sotto.shell.service.NarrationCoordinatorProvider
 import page.stephens.sotto.shell.sync.ServerNarrationState
 import page.stephens.sotto.shell.sync.SyncCoordinatorProvider
@@ -658,119 +659,106 @@ class SottoActivity : ComponentActivity() {
 
     // ----------------------------------------------------------------- Player
 
-    @Composable
-    private fun rememberController(): MediaController? {
-        var controller by remember { mutableStateOf<MediaController?>(null) }
-        DisposableEffect(Unit) {
-            val future = MediaController.Builder(this@SottoActivity,
-                SessionToken(this@SottoActivity, ComponentName(this@SottoActivity, NarrationService::class.java)))
-                .buildAsync()
-            future.addListener({ controller = future.get() }, ContextCompat.getMainExecutor(this@SottoActivity))
-            onDispose { MediaController.releaseFuture(future) }
-        }
-        return controller
-    }
-
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    private fun PlayerScreen(id: String, onBack: () -> Unit) {
-        val row by db.orations().byIdFlow(id).collectAsStateWithLifecycle(initialValue = null, context = Dispatchers.Main.immediate)
-        val controller = rememberController()
-        var positionMs by remember { mutableStateOf(0L) }
-        var durationMs by remember { mutableStateOf(0L) }
-        var playing by remember { mutableStateOf(false) }
-        var ended by remember { mutableStateOf(false) }
-        var speed by remember { mutableStateOf(1.0f) }
-        var sleepLeft by remember { mutableStateOf<Int?>(null) }
-        LaunchedEffect(controller) {
-            while (true) {
-                controller?.let {
-                    if (it.currentMediaItem?.mediaId == id) {
-                        positionMs = it.currentPosition
-                        durationMs = it.duration.coerceAtLeast(0)
-                        playing = it.isPlaying
-                        ended = it.playbackState == Player.STATE_ENDED
-                        speed = it.playbackParameters.speed
-                    }
-                }
-                kotlinx.coroutines.delay(500)
-            }
-        }
-        val o = row ?: return
-        val catchingUp = ended && o.status == "NARRATING"
+    private fun PlayerScaffold(
+        title: String,
+        onBack: () -> Unit,
+        content: @Composable ColumnScope.() -> Unit,
+    ) {
         Scaffold(topBar = {
-            TopAppBar(title = { Text(o.title, maxLines = 1) },
-                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } })
+            TopAppBar(
+                title = { Text(title, maxLines = 1) },
+                navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
+            )
         }) { pad ->
-            Column(Modifier.padding(pad).padding(16.dp)) {
+            Column(
+                Modifier.padding(pad).padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState()),
+                content = content,
+            )
+        }
+    }
+
+    @Composable
+    private fun PlayerScreen(id: String, onBack: () -> Unit) {
+        val context = LocalContext.current
+        val player = remember(id) { OrationPlayer.create(context, id) }
+        DisposableEffect(player) {
+            onDispose { player.close() }
+        }
+        val playerState by player.state.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
+        when (val s = playerState) {
+            OrationPlayerState.Loading -> PlayerScaffold("Oration", onBack) {
+                Column(
+                    Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
+            OrationPlayerState.Missing -> PlayerScaffold("Oration", onBack) {
+                Text("Oration no longer exists", style = MaterialTheme.typography.bodyMedium)
+            }
+            is OrationPlayerState.Ready -> PlayerScaffold(s.title, onBack) {
                 Text(when {
-                    catchingUp -> "Catching up - the narrator is just behind you..."
-                    o.status == "NARRATING" -> "Narrating · chunk ${o.chunksDone} / ${o.chunksTotal ?: "?"}"
-                    o.status == "STOPPED" -> "Stopped at chunk ${o.chunksDone} / ${o.chunksTotal ?: "?"}" +
-                        (o.errorMessage?.let { " · $it" } ?: "")
-                    else -> "${o.words} words"
+                    s.catchingUp -> "Catching up - the narrator is just behind you..."
+                    s.status == "NARRATING" -> "Narrating · chunk ${s.chunksDone} / ${s.chunksTotal ?: "?"}"
+                    s.status == "STOPPED" -> "Stopped at chunk ${s.chunksDone} / ${s.chunksTotal ?: "?"}" +
+                        (s.errorMessage?.let { " · $it" } ?: "")
+                    else -> "${s.words} words"
                 }, style = MaterialTheme.typography.bodyMedium)
-                if (o.status == "NARRATING" && (o.chunksTotal ?: 0) > 0) {
+                if (s.status == "NARRATING" && (s.chunksTotal ?: 0) > 0) {
                     Spacer(Modifier.height(6.dp))
-                    LinearProgressIndicator(progress = { o.chunksDone.toFloat() / o.chunksTotal!! },
-                        modifier = Modifier.fillMaxWidth())
+                    LinearProgressIndicator(
+                        progress = { s.chunksDone.toFloat() / s.chunksTotal!! },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
                 Spacer(Modifier.height(20.dp))
-                Slider(
-                    value = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f,
-                    onValueChange = { f -> controller?.seekTo((f * durationMs).toLong()) },
+                PlayerTimeline(
+                    isLoaded = s.isLoaded,
+                    timelineFlow = player.timeline,
+                    onSeekTo = player::seekTo,
                 )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(fmtSecs(positionMs / 1000)); Text(fmtSecs(durationMs / 1000))
-                }
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    Button(onClick = { controller?.seekTo((positionMs - 15_000).coerceAtLeast(0)) }) { Text("« 15s") }
-                    Button(onClick = {
-                        controller?.let { c ->
-                            if (c.currentMediaItem?.mediaId != id) svc(InAppNarrationService.ACTION_PLAY, id)
-                            else if (playing) c.pause() else c.play()
-                        } ?: svc(InAppNarrationService.ACTION_PLAY, id)
-                    }) { Text(if (playing) "Pause" else "Play") }
-                    Button(onClick = { controller?.seekTo(positionMs + 15_000) }) { Text("15s »") }
+                    Button(onClick = player::skipBack, enabled = s.isLoaded) { Text("« 15s") }
+                    Button(
+                        onClick = player::togglePlayPause,
+                        enabled = s.isLoaded || s.canPlay,
+                    ) { Text(if (s.isPlaying) "Pause" else "Play") }
+                    Button(onClick = player::skipForward, enabled = s.isLoaded) { Text("15s »") }
                 }
                 Spacer(Modifier.height(20.dp))
                 RubricHeader("Speed")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(0.8f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { s ->
-                        FilterChip(selected = speed == s,
-                            onClick = { controller?.setPlaybackSpeed(s) },
-                            label = { Text("${s}x") })
+                    listOf(0.8f, 1.0f, 1.25f, 1.5f, 2.0f).forEach { speedOption ->
+                        FilterChip(
+                            selected = s.speed == speedOption,
+                            enabled = s.isLoaded,
+                            onClick = { player.setSpeed(speedOption) },
+                            label = { Text("${speedOption}x") },
+                        )
                     }
                 }
                 Spacer(Modifier.height(12.dp))
                 RubricHeader("Sleep timer")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(15, 30, 60).forEach { m ->
-                        FilterChip(selected = sleepLeft == m,
-                            onClick = {
-                                val next = if (sleepLeft == m) 0 else m
-                                sleepLeft = if (next == 0) null else next
-                                svc(InAppNarrationService.ACTION_SLEEP_TIMER, minutes = next)
-                            },
-                            label = { Text("$m min") })
+                    listOf(15, 30, 60).forEach { minutes ->
+                        FilterChip(
+                            selected = s.sleepMinutes == minutes,
+                            onClick = { player.toggleSleepTimer(minutes) },
+                            label = { Text("$minutes min") },
+                        )
                     }
                 }
-                if (o.status == "NARRATING") {
+                if (s.status == "NARRATING") {
                     Spacer(Modifier.height(20.dp))
-                    TextButton(onClick = { svc(InAppNarrationService.ACTION_STOP_NARRATION) }) {
+                    TextButton(onClick = player::stopNarration) {
                         Text("Stop narrating (keeps what's done)")
                     }
                 }
-                // Read-along: the source is written in full at creation, so the
-                // whole text is readable here even while it's still synthesizing.
-                @Suppress("ProduceStateDoesNotAssignValue")   // lint false positive: value is assigned
-                val source by produceState("", id, o.downloaded) {
-                    value = withContext(Dispatchers.IO) {
-                        runCatching { File(filesDir, "orations/$id/source.md").readText() }.getOrDefault("")
-                    }
-                }
-                if (source.isNotBlank()) {
+                if (s.sourceText.isNotBlank()) {
                     Spacer(Modifier.height(16.dp))
                     FleuronRule()
                     RubricHeader("Text", Modifier.padding(top = 12.dp, bottom = 6.dp))
@@ -778,13 +766,51 @@ class SottoActivity : ComponentActivity() {
                     // a gilded rubric initial the next lines wrap around (the
                     // manuscript's most iconic element), then full-width text.
                     DropCapText(
-                        text = source,
+                        text = s.sourceText,
                         capColor = MaterialTheme.colorScheme.tertiary,
                         bodyColor = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
+        }
+    }
+
+    @Composable
+    private fun PlayerTimeline(
+        isLoaded: Boolean,
+        timelineFlow: StateFlow<PlaybackTimeline>,
+        onSeekTo: (Long) -> Unit,
+    ) {
+        val timeline by timelineFlow.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
+        val durationMs = timeline.durationMs
+        val canScrub = isLoaded && durationMs > 0L
+        var dragFraction by remember(canScrub) { mutableStateOf<Float?>(null) }
+        val sliderValue = dragFraction ?: if (durationMs > 0L) {
+            (timeline.positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        val displayPositionMs = dragFraction?.let { fraction ->
+            (fraction.coerceIn(0f, 1f) * durationMs).toLong()
+        } ?: timeline.positionMs
+        Slider(
+            value = sliderValue,
+            onValueChange = { fraction ->
+                if (canScrub) {
+                    dragFraction = fraction.coerceIn(0f, 1f)
+                }
+            },
+            onValueChangeFinished = {
+                val fraction = dragFraction ?: return@Slider
+                dragFraction = null
+                if (canScrub) {
+                    onSeekTo((fraction * durationMs).toLong().coerceIn(0L, durationMs))
+                }
+            },
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(fmtSecs(displayPositionMs / 1000)); Text(fmtSecs(durationMs / 1000))
         }
     }
 

@@ -19,7 +19,7 @@ app/src/main/kotlin/page/stephens/sotto/
     store/     Room entities/DAOs, file layout, job log
   shell/       Compose UI, NarrationService, MediaSession, manual process wiring
     synth/     managed sherpa-onnx resource + MediaCodec adapter
-    playback/  owner-scoped OrationPlayback, Media3 output, position FIFO
+    playback/  owner-scoped OrationPlayback, client OrationPlayer, Media3 output, position FIFO
     sync/      nullable process-wide SyncCoordinator + SyncCoordinatorProvider
 src/local/     local flavor wiring (`SyncFactory` returns null; no network)
 src/sync/      sync flavor only: `SyncFactory`, `RealSyncCoordinator`,
@@ -88,8 +88,18 @@ src/testSync/  sync-flavor JVM suites (`SottoApiContractTest`,
   immutable observations and Room dependencies rather than an owner or player.
   Listen-now consumes saved-durable-audio events with
   attachment/run fencing; deletion uses a narrow playback-stop callback on the
-  required thread. Detach stops pickup, and replacement execution waits for
+  required thread, and `NarrationCoordinator` invokes `onDeletionFenced` inside
+  `beginDeletion` (wired to `PlaybackPersistence::invalidateShared`) so
+  unattached gate resets clear cached positions without eager persistence
+  startup. Detach stops pickup, and replacement execution waits for
   the previous writer and model to drain off-main.
+- Client `PlayerScreen` UI talks only to `OrationPlayer` (with internal
+  `PlayerTransport` and `PlayerCommands` seams and `OrationPlayer.setFactoryForTest`);
+  Activities never own `MediaController` builders, polling loops, sleep-chip
+  mirrors, or `source.md` file reads. Isolate high-frequency `PlaybackTimeline`
+  collection in a leaf `PlayerTimeline` composable, keep `Slider` drag state
+  local until `onValueChangeFinished`, and keep `AndroidView` `update` blocks in
+  `DropCapText` idempotent across repeated recompositions.
 - Narrate, play, stop narration, sleep timer, and delete are started on the
   non-exported `InAppNarrationService`. `NarrationService.onStartCommand` does
   not handle them (ADR-008); that service stays exported only for the Media3

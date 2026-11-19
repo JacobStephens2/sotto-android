@@ -395,7 +395,7 @@ class OrationPlaybackTest {
         output.released = true
         playback.play("b")
         playback.listenNow(b)
-        playback.stopForDeletion("a")
+        playback.stopForDeletion("b")
         playback.sleep(30)
         assertSame(drained, playback.close())
         flush()
@@ -550,6 +550,50 @@ class OrationPlaybackTest {
         assertEquals(5000L, replacementOutput.state.positionMs)
     }
 
+    @Test
+    fun `closed owner stopForDeletion invalidates PlaybackPersistence without touching released output`() {
+        seed("a")
+        val first = owner()
+        first.play("a")
+        flush()
+        output.state = output.state.copy(positionMs = 4500)
+        val drained = first.close()
+        output.released = true
+
+        first.stopForDeletion("a")
+        assertEquals(0L, persistence.resumePosition("a", 0L))
+        writes.runAll()
+        assertTrue(drained.isCompleted)
+        assertEquals(0L, db.orations().byId("a")!!.playheadMs)
+        assertEquals(0, output.clears)
+    }
+
+    @Test
+    fun `sleep timer publishes session state on arm replace cancel expiration and close`() {
+        seed("a")
+        val playback = owner()
+        playback.play("a")
+        flush()
+
+        playback.sleep(15)
+        assertEquals(listOf<Int?>(15), output.sleepPublications)
+
+        playback.sleep(30)
+        assertEquals(listOf<Int?>(15, 30), output.sleepPublications)
+
+        playback.sleep(0)
+        assertEquals(listOf<Int?>(15, 30, null), output.sleepPublications)
+
+        playback.sleep(15)
+        shadowOf(Looper.getMainLooper()).idleFor(15, TimeUnit.MINUTES)
+        assertEquals(listOf<Int?>(15, 30, null, 15, null), output.sleepPublications)
+
+        playback.sleep(20)
+        playback.close()
+        flush()
+        assertEquals(listOf<Int?>(15, 30, null, 15, null, 20, null), output.sleepPublications)
+    }
+
     private fun grow(id: String, bytes: Long) {
         File(root, "$id/audio.aac").writeBytes(ByteArray(bytes.toInt()))
         db.orations().setDownloaded(id, bytes)
@@ -585,6 +629,7 @@ class OrationPlaybackTest {
         var released = false
         var state = PlaybackSnapshot(null, 0, false, false, 1f)
         val loads = mutableListOf<SavedAudio>()
+        val sleepPublications = mutableListOf<Int?>()
         var pauses = 0
         var clears = 0
         override fun snapshot(): PlaybackSnapshot { checkAvailable(); return state }
@@ -596,6 +641,10 @@ class OrationPlaybackTest {
         override fun pause() { checkAvailable(); pauses++; state = state.copy(playWhenReady = false) }
         override fun stopAndClear() {
             checkAvailable(); clears++; state = state.copy(id = null, positionMs = 0, playWhenReady = false)
+        }
+        override fun publishSleepTimer(minutes: Int?) {
+            checkAvailable()
+            sleepPublications.add(minutes)
         }
         private fun checkAvailable() {
             check(!released) { "Output was released" }
