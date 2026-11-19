@@ -66,13 +66,16 @@ class NarrationService : MediaSessionService() {
         player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(this, extractors))
             .setHandleAudioBecomingNoisy(true)
+            .setSeekBackIncrementMs(15_000L)
+            .setSeekForwardIncrementMs(15_000L)
             .build()
-        session = MediaSession.Builder(this, player)
+        val builtSession = MediaSession.Builder(this, player)
             .setCallback(sessionCallback)
             .build()
+        session = builtSession
         val coordinator = NarrationCoordinatorProvider.get(this)
         playback = SavedOrationPlayback(
-            db, File(filesDir, "orations"), Media3PlaybackOutput(player),
+            db, File(filesDir, "orations"), Media3PlaybackOutput(player, builtSession),
             coordinator.facts, PlaybackPersistence.shared(db),
         )
         narrator = coordinator.attach(NarrationCallbacks(

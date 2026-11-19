@@ -101,6 +101,7 @@ class NarrationCoordinator(
         override fun thermal() = "unknown"
         override fun pssKb() = 0L
     },
+    private val onDeletionFenced: (String) -> Unit = {},
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lane = Executors.newSingleThreadExecutor { r -> Thread(r, "narration-writer") }.asCoroutineDispatcher()
@@ -479,6 +480,7 @@ class NarrationCoordinator(
     ) {
         pendingDeletes[id]?.let { it.replies.add(reply); return }
         deleting.add(id)
+        onDeletionFenced(id)
         active?.takeIf { it.id == id }?.stop?.set(true)
         if (id == "gate") {
             fenceGateCallbacks(diagnostic)

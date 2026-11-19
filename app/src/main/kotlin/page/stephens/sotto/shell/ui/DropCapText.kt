@@ -47,6 +47,14 @@ private class DropCapSpan(
     }
 }
 
+private data class DropCapKey(
+    val text: String,
+    val capArgb: Int,
+    val bodyArgb: Int,
+    val bodySizeSp: Float,
+    val lines: Int,
+)
+
 @Composable
 fun DropCapText(
     text: String,
@@ -66,6 +74,24 @@ fun DropCapText(
             }
         },
         update = { tv ->
+            val capArgb = capColor.toArgb()
+            val bodyArgb = bodyColor.toArgb()
+            val key = DropCapKey(text, capArgb, bodyArgb, bodySizeSp, lines)
+            val prev = tv.tag as? DropCapKey
+            if (key == prev) return@AndroidView
+            tv.tag = key
+            if (prev == null || prev.bodyArgb != bodyArgb) {
+                tv.setTextColor(bodyArgb)
+            }
+            if (prev == null || prev.bodySizeSp != bodySizeSp) {
+                tv.textSize = bodySizeSp
+            }
+            val needsSpan = prev == null ||
+                prev.text != text ||
+                prev.capArgb != capArgb ||
+                prev.bodySizeSp != bodySizeSp ||
+                prev.lines != lines
+            if (!needsSpan) return@AndroidView
             val i = text.indexOfFirst { !it.isWhitespace() }
             if (i < 0) {
                 tv.text = text
@@ -77,7 +103,7 @@ fun DropCapText(
                 val capPx = lineH * lines * 0.86f
                 val sp = SpannableString(rest)
                 sp.setSpan(
-                    DropCapSpan(cap, capColor.toArgb(), capPx, lines, tv.paint.textSize * 0.35f),
+                    DropCapSpan(cap, capArgb, capPx, lines, tv.paint.textSize * 0.35f),
                     0, rest.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE,
                 )
                 tv.text = sp

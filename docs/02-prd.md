@@ -38,11 +38,23 @@ Deletion clears matching playback before removal and fences stale reads/writes;
 a recreated gate remains playable. Sleep replacement/cancel and owner close
 fence pending deadlines; an accepted pause is logged locally. Listening positions
 retain identity and FIFO ordering across owner replacement without changing
-sync modification timestamps. Returning to an Oration or replacing its owner
-restores the latest accepted position even while its storage write is pending.
+sync modification timestamps, and deleting an Oration or resetting the Lab gate
+clears cached positions even when no playback owner is attached or after it
+closes. Returning to an Oration or replacing its owner restores the latest accepted
+position even while its storage write is pending. Before a playback session loads,
+the Player screen displays the resumed position and saved duration (or 64 kbps
+byte estimate for durable local audio) rather than `0:00 / 0:00`. Transport
+mutations (seek, 15s skip, speed, active pause) affect only the matching loaded
+Oration, while tapping Play on a non-loaded Oration starts that Oration only if
+local audio is available. Sleep-timer chips stay synchronized with MediaSession
+session extras across connect, changes, expiration, and disconnect; timeline
+ticks only while loaded and playing, and read-along text updates idempotently
+without recomposing on timeline ticks or losing scroll/text state. Missing rows
+render `"Oration no longer exists"` with a Back action cleanly.
 
 - Media3 session: lock-screen and notification controls, headphone buttons,
-  15-second skip both directions, play/pause.
+  15-second skip increments (`15,000 ms`) in both directions, sleep-timer extras,
+  and play/pause.
 - Position is remembered per oration and restored on reopen (parity with the
   web app's sessionStorage behavior, but durable).
 - Playback continues with the screen off and survives Doze, because synthesis

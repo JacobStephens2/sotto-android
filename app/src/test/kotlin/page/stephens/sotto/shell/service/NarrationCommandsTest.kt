@@ -44,6 +44,8 @@ import org.robolectric.shadows.ShadowBinder
 import org.robolectric.shadows.ShadowToast
 import page.stephens.sotto.engine.store.OrationEntity
 import page.stephens.sotto.engine.store.SottoDatabase
+import page.stephens.sotto.shell.playback.EXTRA_SLEEP_MINUTES
+import page.stephens.sotto.shell.playback.PlaybackSnapshot
 import page.stephens.sotto.shell.playback.PlaybackPersistence
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -480,6 +482,121 @@ class NarrationCommandsTest {
         } finally {
             controller?.release()
         }
+    }
+
+    @Test
+    fun `real MediaController reports 15000 ms skip increments and syncs sessionExtras sleep state`() {
+        insert("media-id", status = "COMPLETE", audioBytes = 8, withAudio = true)
+        val service = startNarration()
+        val commands = startInApp()
+        val session = service.onGetSession(controllerInfo(context.packageName, Process.myUid(), isTrusted = false))!!
+        val liveExtras = java.util.concurrent.CopyOnWriteArrayList<Int?>()
+        val liveFuture = MediaController.Builder(context, session.token)
+            .setListener(object : MediaController.Listener {
+                override fun onExtrasChanged(controller: MediaController, extras: Bundle) {
+                    liveExtras.add(sleepMinutes(extras))
+                }
+            })
+            .buildAsync()
+        await { liveFuture.isDone }
+        val live = liveFuture.get()
+        var fresh: MediaController? = null
+        var afterExpire: MediaController? = null
+        try {
+            assertEquals(15_000L, live.seekBackIncrement)
+            assertEquals(15_000L, live.seekForwardIncrement)
+            assertNull(sleepMinutes(live.sessionExtras))
+
+            commands.onStartCommand(command(InAppNarrationService.ACTION_SLEEP_TIMER, minutes = 15), 0, 1)
+            await { liveExtras.lastOrNull() == 15 }
+            assertEquals(15, sleepMinutes(live.sessionExtras))
+
+            val freshExtras = java.util.concurrent.CopyOnWriteArrayList<Int?>()
+            val freshFuture = MediaController.Builder(context, session.token)
+                .setListener(object : MediaController.Listener {
+                    override fun onExtrasChanged(controller: MediaController, extras: Bundle) {
+                        freshExtras.add(sleepMinutes(extras))
+                    }
+                })
+                .buildAsync()
+            await { freshFuture.isDone }
+            fresh = freshFuture.get()
+            assertEquals(15, sleepMinutes(fresh.sessionExtras))
+
+            commands.onStartCommand(command(InAppNarrationService.ACTION_SLEEP_TIMER, minutes = 30), 0, 2)
+            await { liveExtras.lastOrNull() == 30 && freshExtras.lastOrNull() == 30 }
+            assertEquals(30, sleepMinutes(live.sessionExtras))
+            assertEquals(30, sleepMinutes(fresh.sessionExtras))
+
+            commands.onStartCommand(command(InAppNarrationService.ACTION_SLEEP_TIMER, minutes = 0), 0, 3)
+            await { liveExtras.size >= 3 && liveExtras.last() == null && freshExtras.last() == null }
+            assertNull(sleepMinutes(live.sessionExtras))
+            assertNull(sleepMinutes(fresh.sessionExtras))
+
+            commands.onStartCommand(command(InAppNarrationService.ACTION_SLEEP_TIMER, minutes = 15), 0, 4)
+            await { liveExtras.lastOrNull() == 15 && freshExtras.lastOrNull() == 15 }
+            shadowOf(Looper.getMainLooper()).idleFor(15, TimeUnit.MINUTES)
+            await { liveExtras.lastOrNull() == null && freshExtras.lastOrNull() == null }
+            assertNull(sleepMinutes(live.sessionExtras))
+            assertNull(sleepMinutes(fresh.sessionExtras))
+
+            val afterFuture = MediaController.Builder(context, session.token).buildAsync()
+            await { afterFuture.isDone }
+            afterExpire = afterFuture.get()
+            assertNull(sleepMinutes(afterExpire.sessionExtras))
+        } finally {
+            afterExpire?.release()
+            fresh?.release()
+            live.release()
+        }
+    }
+
+    @Test
+    fun `unattached Lab ResetGate clears PlaybackPersistence cached positions without eager startup`() {
+        assertFalse(PlaybackPersistence.isInitializedForTest())
+        insert("gate", status = "COMPLETE", audioBytes = 8, withAudio = true)
+        val audio = File(context.filesDir, "orations/gate/audio.aac")
+        runLabResetGate(audio)
+        assertFalse(PlaybackPersistence.isInitializedForTest())
+
+        // Seed cached listening position while service is unattached.
+        insert("gate", status = "COMPLETE", audioBytes = 8, withAudio = true)
+        val persistence = PlaybackPersistence.shared(db)
+        persistence.observe(PlaybackSnapshot("gate", 4_200L, ended = false, playWhenReady = false, speed = 1f))
+        assertEquals(4_200L, persistence.resumePosition("gate", 0L))
+
+        runLabResetGate(audio)
+        assertEquals(0L, persistence.resumePosition("gate", 0L))
+
+        insert("gate", status = "COMPLETE", audioBytes = 8, withAudio = true)
+        val player = sessionPlayer(startNarration())
+        startInApp().onStartCommand(command(InAppNarrationService.ACTION_PLAY, "gate"), 0, 1)
+        await { player.mediaItemCount == 1 }
+        assertEquals(0L, player.currentPosition)
+    }
+
+    private fun runLabResetGate(audio: File) {
+        val controller = Robolectric.buildActivity(page.stephens.sotto.spike.MainActivity::class.java)
+            .create().start().resume()
+        try {
+            val content = controller.get().findViewById<android.view.ViewGroup>(android.R.id.content)
+            fun descendants(view: android.view.View): List<android.view.View> =
+                listOf(view) + if (view is android.view.ViewGroup) {
+                    (0 until view.childCount).flatMap { descendants(view.getChildAt(it)) }
+                } else emptyList()
+            val views = descendants(content)
+            views.filterIsInstance<android.widget.Button>().single {
+                it.text.toString().startsWith("Phase 1 gate")
+            }.performLongClick()
+            await { oration("gate") == null && !audio.parentFile!!.exists() }
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    private fun sleepMinutes(extras: Bundle?): Int? {
+        if (extras == null || !extras.containsKey(EXTRA_SLEEP_MINUTES)) return null
+        return extras.getInt(EXTRA_SLEEP_MINUTES, 0).takeIf { it > 0 }
     }
 
     private fun startNarration(intent: Intent? = null): NarrationService {

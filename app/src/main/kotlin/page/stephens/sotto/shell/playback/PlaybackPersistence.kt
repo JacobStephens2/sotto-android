@@ -87,6 +87,13 @@ internal class PlaybackPersistence(
             shared ?: PlaybackPersistence(db).also { shared = it }
         }
 
+        // Synchronous deletion fencing must not force lazy persistence startup.
+        fun invalidateShared(id: String) {
+            synchronized(this) { shared?.invalidate(id) }
+        }
+
+        internal fun isInitializedForTest(): Boolean = synchronized(this) { shared != null }
+
         internal fun shutdownSharedForTest(): kotlinx.coroutines.Job? = synchronized(this) {
             shared?.shutdownForTest().also { shared = null }
         }
