@@ -4,6 +4,8 @@ import android.content.Context
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.StateFlow
 import page.stephens.sotto.engine.store.OrationEntity
+import page.stephens.sotto.engine.store.OrationIdentity
+import page.stephens.sotto.engine.store.OrationStatus
 
 /** What the account may do server-side (docs/12-api-contract.md, /api/v1/me).
  *  `openaiVoices` is non-empty only for accounts the server allows onto the
@@ -49,7 +51,7 @@ data class SyncState(
     val capabilities: ServerAccount? = null,
     val syncingLibrary: Boolean = false,
     val activeDownloads: Map<String, Int> = emptyMap(),
-    val activeUploads: Set<String> = emptySet(),
+    val activeUploads: Set<OrationIdentity> = emptySet(),
     val authBusy: Boolean = false,
     val authStatus: String? = null,
     val accountSyncStatus: String? = null,
@@ -65,12 +67,16 @@ interface SyncCoordinator {
     suspend fun disconnect(): String
     suspend fun syncNow(): Result<String>
     suspend fun download(oration: OrationEntity): Result<Unit>
-    suspend fun upload(oration: OrationEntity): Result<String>
+    suspend fun upload(orationId: String, expectedCreatedAt: Long): Result<String>
     suspend fun refreshAccount(force: Boolean = false): Result<ServerAccount>
     fun narrateOnServer(text: String, voice: String, title: String): String
     fun acknowledgeServerNarration(requestId: String)
     fun shutdown(): Deferred<Unit>
 }
+
+internal fun OrationEntity.isEligibleForUpload(): Boolean =
+    downloaded && serverName == null &&
+        (status == OrationStatus.COMPLETE.name || status == OrationStatus.STOPPED.name)
 
 /** Provides the process-wide [SyncCoordinator] (or `null` in `local`). */
 internal object SyncCoordinatorProvider {

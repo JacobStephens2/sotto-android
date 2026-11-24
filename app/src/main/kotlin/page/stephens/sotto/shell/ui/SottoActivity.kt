@@ -57,6 +57,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -82,6 +83,7 @@ import page.stephens.sotto.engine.store.JobLog
 import page.stephens.sotto.engine.store.CreationResult
 import page.stephens.sotto.engine.store.JobLogEntity
 import page.stephens.sotto.engine.store.OrationEntity
+import page.stephens.sotto.engine.store.OrationIdentity
 import page.stephens.sotto.engine.store.SottoDatabase
 import page.stephens.sotto.engine.text.Intake
 import page.stephens.sotto.engine.text.Titles
@@ -93,6 +95,7 @@ import page.stephens.sotto.shell.service.NarrationCoordinatorProvider
 import page.stephens.sotto.shell.sync.ServerNarrationState
 import page.stephens.sotto.shell.sync.SyncCoordinatorProvider
 import page.stephens.sotto.shell.sync.SyncState
+import page.stephens.sotto.shell.sync.isEligibleForUpload
 import java.io.File
 
 private val VOICES = listOf(
@@ -477,7 +480,7 @@ class SottoActivity : ComponentActivity() {
                               onLibrary: (() -> Unit)?) {
         val items by db.orations().allFlow().collectAsStateWithLifecycle(initialValue = emptyList(), context = Dispatchers.Main.immediate)
         val downloads = syncState?.activeDownloads ?: emptyMap()
-        var sheetFor by remember { mutableStateOf<OrationEntity?>(null) }
+        var sheetSelection by remember { mutableStateOf<OrationIdentity?>(null) }
         Scaffold(topBar = {
             TopAppBar(title = { SottoWordmark() }, actions = {
                 if (onLibrary != null) TextButton(onClick = onLibrary) { Text("Library") }
@@ -517,13 +520,25 @@ class SottoActivity : ComponentActivity() {
                         },
                         modifier = Modifier.combinedClickable(
                             onClick = { onOpen(o) },
-                            onLongClick = { sheetFor = o }),
+                            onLongClick = { sheetSelection = OrationIdentity(o.id, o.createdAt) }),
                     )
                     HorizontalDivider()
                 }
             }
         }
-        sheetFor?.let { o -> OrationSheet(o, syncState = syncState, onDismiss = { sheetFor = null }) }
+        val selection = sheetSelection
+        if (selection != null) {
+            val selected = items.firstOrNull(selection::matches)
+            if (selected == null) {
+                LaunchedEffect(selection) {
+                    if (sheetSelection == selection) sheetSelection = null
+                }
+            } else {
+                key(selection) {
+                    OrationSheet(selected, syncState = syncState, onDismiss = { sheetSelection = null })
+                }
+            }
+        }
     }
 
     private fun subtitleOf(o: OrationEntity) = if (!o.downloaded)
@@ -590,15 +605,15 @@ class SottoActivity : ComponentActivity() {
                 modifier = Modifier.clickable { renaming = true })
             ListItem(headlineContent = { Text("View source text") },
                 modifier = Modifier.clickable { viewingSource = true })
-            if (syncState?.accountEmail != null && o.serverName == null && o.downloaded &&
-                o.status in listOf("COMPLETE", "STOPPED")) {
-                val uploading = o.id in syncState.activeUploads
+            if (syncState?.accountEmail != null && o.isEligibleForUpload()) {
+                val activeUpload = syncState.activeUploads.firstOrNull { it.id == o.id }
+                val uploading = activeUpload?.matches(o) == true
                 ListItem(
                     headlineContent = { Text(if (uploading) "Uploading..." else "Upload to account") },
-                    modifier = Modifier.clickable(enabled = !uploading) {
+                    modifier = Modifier.clickable(enabled = activeUpload == null) {
                         val s = sync ?: return@clickable
                         lifecycleScope.launch {
-                            s.upload(o)
+                            s.upload(o.id, o.createdAt)
                                 .onSuccess { msg -> Toast.makeText(this@SottoActivity, msg, Toast.LENGTH_SHORT).show() }
                                 .onFailure { t ->
                                     if (t !is CancellationException) {

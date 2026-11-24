@@ -35,7 +35,8 @@ rules; the code reading index follows the ordinary narration path.
 
 ## Code reading index
 
-Paths are relative to `app/src/main/kotlin/page/stephens/sotto/`.
+Paths are relative to `app/src/main/kotlin/page/stephens/sotto/` unless they
+start with `app/`.
 
 | Concern | Start here |
 |---|---|
@@ -53,6 +54,8 @@ Paths are relative to `app/src/main/kotlin/page/stephens/sotto/`.
 | Media3 output and application-scoped position FIFO | `shell/playback/PlaybackOutput.kt`, `shell/playback/PlaybackPersistence.kt` |
 | Drop-cap read-along text rendering | `shell/ui/DropCapText.kt` |
 | Non-exported in-app command routing | `shell/service/InAppNarrationService.kt` |
+| Live Library action sheet and explicit upload entry | `shell/ui/SottoActivity.kt`, `shell/sync/SyncCoordinator.kt` |
+| Upload admission, name reservation, and completion | `app/src/sync/kotlin/page/stephens/sotto/shell/sync/RealSyncCoordinator.kt`, `engine/store/Db.kt` |
 | Typed Lab requests and measurements | `engine/narrate/Diagnostics.kt`, `engine/narrate/DiagnosticExecution.kt`, `spike/MainActivity.kt` |
 
 For ownership changes, read [ADR-009](adr/ADR-009-retained-narration-ownership.md)
@@ -85,6 +88,11 @@ command isolation, sleep extras parity, active-only ticking, and cancellation;
 behavior through `OrationPlayer.setFactoryForTest`, while `OrationPlaybackTest`
 and `NarrationCommandsTest` cover sleep-timer extras, 15,000 ms MediaSession
 skips, and closing-owner/unattached deletion invalidation.
+Issue #36 keeps Library selection tied to the same saved Oration and moves
+explicit upload admission behind its identity interface. Start with
+`SyncUiTest` for the rendered sheet as Room and progress change, and
+`SyncCoordinatorTest` for admission, transfer sharing, and completion against
+real Room and files.
 
 ## Deliberately skipped
 
