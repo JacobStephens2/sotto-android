@@ -1,5 +1,6 @@
 package page.stephens.sotto.shell.sync
 
+import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CompletableJob
@@ -32,6 +33,7 @@ import page.stephens.sotto.engine.store.JobLog
 import page.stephens.sotto.engine.store.DownloadPreparation
 import page.stephens.sotto.engine.store.DownloadPublication
 import page.stephens.sotto.engine.store.OrationEntity
+import page.stephens.sotto.engine.store.OrationIdentity
 import page.stephens.sotto.engine.store.OrationPublication
 import page.stephens.sotto.engine.store.SottoDatabase
 import java.io.File
@@ -74,7 +76,7 @@ internal class RealSyncCoordinator(
 
     private data class ActiveUpload(
         val epoch: Long,
-        val createdAt: Long,
+        val identity: OrationIdentity,
         val job: Job,
         val candidateNames: Set<String>,
         val deferred: Deferred<Result<String>>,
@@ -302,6 +304,7 @@ internal class RealSyncCoordinator(
         initDone.await()
         val session = synchronized(coordinatorLock) { currentSession }
             ?: return Result.failure(IllegalStateException("Not connected"))
+        val requested = OrationIdentity(orationId, expectedCreatedAt)
         val admission = try {
             withContext(ioDispatcher) {
                 // Order admission after any preceding upload's link commit.
@@ -314,12 +317,12 @@ internal class RealSyncCoordinator(
                         if (orationId in narrationFacts.value.deletingIds) {
                             return@runInTransaction Result.failure(CancellationException("Oration is being deleted"))
                         }
-                        if (oration == null || oration.createdAt != expectedCreatedAt) {
+                        if (oration == null || !requested.matches(oration)) {
                             return@runInTransaction Result.failure(IllegalArgumentException("Oration missing or replaced"))
                         }
                         val existing = activeUploads[orationId]?.takeIf { it.deferred.isActive }
                         if (existing != null) {
-                            return@runInTransaction if (existing.createdAt == expectedCreatedAt) {
+                            return@runInTransaction if (existing.identity == requested) {
                                 Result.success(existing)
                             } else {
                                 Result.failure(IllegalStateException("Previous upload for this Oration ID is still finishing"))
@@ -350,7 +353,8 @@ internal class RealSyncCoordinator(
         val job = session.scope.launch(start = CoroutineStart.LAZY) {
             result.complete(runUpload(session, oration, primaryName, altName))
         }
-        val entry = ActiveUpload(session.epoch, oration.createdAt, job, setOf(primaryName, altName), result)
+        val identity = OrationIdentity(oration.id, oration.createdAt)
+        val entry = ActiveUpload(session.epoch, identity, job, setOf(primaryName, altName), result)
         activeUploads[oration.id] = entry
         publishTransferStateLocked()
         job.invokeOnCompletion { err ->
@@ -663,19 +667,7 @@ internal class RealSyncCoordinator(
                 altName
             }
 
-            val uploadContext = coroutineContext
-            db.runInTransaction {
-                uploadContext.ensureActive()
-                checkSessionActive(session)
-                if (oration.id in narrationFacts.value.deletingIds) {
-                    throw CancellationException("Oration deleted during upload")
-                }
-                val linked = db.orations().linkUpload(oration.id, oration.createdAt, finalName, clock() / 1000)
-                if (linked == 0) {
-                    throw CancellationException("Oration missing, replaced, or already linked after upload")
-                }
-                JobLog(db.joblog(), clock).log("uploaded", oration.title, oration.id, finalName)
-            }
+            linkUploadedOration(session, oration, finalName)
 
             // Mark candidate target names committed so follow-up refresh matches the updated row
             // while keeping the upload in activeUploads until refresh finishes.
@@ -693,6 +685,32 @@ internal class RealSyncCoordinator(
                 runCatching { JobLog(db.joblog(), clock).log("error", oration.title, oration.id, "upload: $t") }
             }
             Result.failure(t)
+        }
+    }
+
+    private suspend fun linkUploadedOration(session: Session, oration: OrationEntity, name: String) {
+        val completedAt = clock()
+        val commit = Any()
+        try {
+            db.withTransaction {
+                // Account changes stay outside the link commit, including the end of the Room transaction.
+                credentialMutex.lock(commit)
+                checkSessionActive(session)
+                if (oration.id in narrationFacts.value.deletingIds) {
+                    throw CancellationException("Oration deleted during upload")
+                }
+                val linked = db.orations().linkUpload(oration.id, oration.createdAt, name, completedAt / 1000)
+                if (linked == 0) {
+                    throw CancellationException("Oration missing, replaced, or already linked after upload")
+                }
+                JobLog(db.joblog()) { completedAt }.log("uploaded", oration.title, oration.id, name)
+                coroutineContext.ensureActive()
+                if (oration.id in narrationFacts.value.deletingIds) {
+                    throw CancellationException("Oration deleted during upload")
+                }
+            }
+        } finally {
+            if (credentialMutex.holdsLock(commit)) credentialMutex.unlock(commit)
         }
     }
 
@@ -917,7 +935,7 @@ internal class RealSyncCoordinator(
 
     private fun publishTransferStateLocked() {
         val downloadsSnapshot = downloadPct.toMap()
-        val uploadsSnapshot = activeUploads.keys.toSet()
+        val uploadsSnapshot = activeUploads.values.mapTo(mutableSetOf()) { it.identity }
         _state.update { it.copy(activeDownloads = downloadsSnapshot, activeUploads = uploadsSnapshot) }
     }
 

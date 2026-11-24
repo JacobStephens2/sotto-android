@@ -75,12 +75,17 @@ src/testSync/  sync-flavor JVM suites (`SottoApiContractTest`,
   epochs, cancel on active `deletingIds` or matching-epoch `401`, and preserve
   `updatedAt` during playhead and sync-bookkeeping writes.
 - Resolve the Library sheet's selected ID and creation time against the
-  lifecycle-collected Room list and scope its drafts to that identity. Share
-  the local upload eligibility rule between the UI and coordinator. Upload
+  lifecycle-collected Room list and scope its drafts and upload progress to
+  that identity. Share the local upload eligibility rule between the UI and
+  coordinator. Upload
   callers pass only the ID and expected creation time. Read the Room row on the
   IO dispatcher before taking the sync lock. Recheck the session and deletion
   state and reserve any new transfer in that transaction, then start networking
   outside both the transaction and the lock.
+- For an upload link, enter Room before acquiring the credential mutex and
+  keep the credential mutex through commit so account changes order with
+  the link and its log. Account transitions release the credential mutex
+  before doing related Room work or waiting for old transfers.
 - A stop flag belongs to a run, not an oration ID. Pending commands precede
   dispatch; retries persist QUEUED before admission succeeds; duplicates never
   clear a stopping run's flag. Pickup sorts by persisted `queuedAt`, then ID.

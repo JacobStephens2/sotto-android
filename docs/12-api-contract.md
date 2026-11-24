@@ -100,9 +100,9 @@ PUT with `If-None-Match: *`, 413 too large, 429 rate-limited.
 - **Upload names and linking**: upload with `If-None-Match: *` and retry on
   `409` using `<slug>-<6 chars of id>`. At completion, the current session
   can link only the same, still-unlinked Oration outside active deletion. The
-  link and one uploaded log commit together, preserving `updatedAt`. Push
-  rename and upload run a best-effort library refresh to capture the server's
-  `serverMtime`.
+  link and one uploaded log commit together, ordered with account changes and
+  preserving `updatedAt`. Push rename and upload run a best-effort library
+  refresh to capture the server's `serverMtime`.
 - **Renames**: last-write-wins using `e.mtime * 1000` (ms); pulled remote
   renames update both `title` and `updatedAt` (`mtime * 1000`) and record a
   local `"renamed"` activity log entry. Playhead persistence (`setPlayhead`),

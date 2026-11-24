@@ -231,13 +231,14 @@ share sheet / file open / paste
 - **Library action sheet** - the Library resolves the selected ID and creation
   time against its lifecycle-collected Room list. The sheet and its drafts stay
   open for updates to that Oration and close on removal or replacement. Account
-  and transfer state come from `SyncState`.
+  and transfer state come from `SyncState`. Upload progress follows the
+  same ID and creation time as the sheet.
 - **Upload admission** - the coordinator accepts only the ID and expected
   creation time. It reads the saved row off-main in a Room transaction and
   checks session, deletion, local eligibility and any existing transfer before
   reserving both server names. Matching requests join the retained transfer
   through its refresh. Completion links the same, still-unlinked Oration and
-  writes its upload log in one transaction.
+  writes its upload log in one transaction ordered with account changes.
 
 ## Audio format decision (resolved by SPIKE-001)
 

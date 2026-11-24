@@ -46,6 +46,10 @@ data class OrationEntity(
     val downloaded: Boolean = true,
 )
 
+data class OrationIdentity(val id: String, val createdAt: Long) {
+    fun matches(oration: OrationEntity): Boolean = id == oration.id && createdAt == oration.createdAt
+}
+
 @Entity(tableName = "joblog")
 data class JobLogEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

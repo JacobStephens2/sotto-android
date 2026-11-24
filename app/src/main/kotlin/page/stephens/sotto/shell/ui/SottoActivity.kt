@@ -83,6 +83,7 @@ import page.stephens.sotto.engine.store.JobLog
 import page.stephens.sotto.engine.store.CreationResult
 import page.stephens.sotto.engine.store.JobLogEntity
 import page.stephens.sotto.engine.store.OrationEntity
+import page.stephens.sotto.engine.store.OrationIdentity
 import page.stephens.sotto.engine.store.SottoDatabase
 import page.stephens.sotto.engine.text.Intake
 import page.stephens.sotto.engine.text.Titles
@@ -151,8 +152,6 @@ private val ScreenSaver = listSaver<Screen, String>(
 )
 
 class SottoActivity : ComponentActivity() {
-
-    private data class LibrarySelection(val id: String, val createdAt: Long)
 
     private lateinit var db: SottoDatabase
     private val sync by lazy { SyncCoordinatorProvider.get(this) }
@@ -481,7 +480,7 @@ class SottoActivity : ComponentActivity() {
                               onLibrary: (() -> Unit)?) {
         val items by db.orations().allFlow().collectAsStateWithLifecycle(initialValue = emptyList(), context = Dispatchers.Main.immediate)
         val downloads = syncState?.activeDownloads ?: emptyMap()
-        var sheetSelection by remember { mutableStateOf<LibrarySelection?>(null) }
+        var sheetSelection by remember { mutableStateOf<OrationIdentity?>(null) }
         Scaffold(topBar = {
             TopAppBar(title = { SottoWordmark() }, actions = {
                 if (onLibrary != null) TextButton(onClick = onLibrary) { Text("Library") }
@@ -521,7 +520,7 @@ class SottoActivity : ComponentActivity() {
                         },
                         modifier = Modifier.combinedClickable(
                             onClick = { onOpen(o) },
-                            onLongClick = { sheetSelection = LibrarySelection(o.id, o.createdAt) }),
+                            onLongClick = { sheetSelection = OrationIdentity(o.id, o.createdAt) }),
                     )
                     HorizontalDivider()
                 }
@@ -529,7 +528,7 @@ class SottoActivity : ComponentActivity() {
         }
         val selection = sheetSelection
         if (selection != null) {
-            val selected = items.firstOrNull { it.id == selection.id && it.createdAt == selection.createdAt }
+            val selected = items.firstOrNull(selection::matches)
             if (selected == null) {
                 LaunchedEffect(selection) {
                     if (sheetSelection == selection) sheetSelection = null
@@ -607,10 +606,11 @@ class SottoActivity : ComponentActivity() {
             ListItem(headlineContent = { Text("View source text") },
                 modifier = Modifier.clickable { viewingSource = true })
             if (syncState?.accountEmail != null && o.isEligibleForUpload()) {
-                val uploading = o.id in syncState.activeUploads
+                val activeUpload = syncState.activeUploads.firstOrNull { it.id == o.id }
+                val uploading = activeUpload?.matches(o) == true
                 ListItem(
                     headlineContent = { Text(if (uploading) "Uploading..." else "Upload to account") },
-                    modifier = Modifier.clickable(enabled = !uploading) {
+                    modifier = Modifier.clickable(enabled = activeUpload == null) {
                         val s = sync ?: return@clickable
                         lifecycleScope.launch {
                             s.upload(o.id, o.createdAt)

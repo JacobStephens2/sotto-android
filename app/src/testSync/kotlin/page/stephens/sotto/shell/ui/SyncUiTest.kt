@@ -34,6 +34,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.shadows.ShadowLooper
 import org.robolectric.shadows.ShadowToast
 import page.stephens.sotto.engine.store.OrationEntity
+import page.stephens.sotto.engine.store.OrationIdentity
 import page.stephens.sotto.engine.store.SottoDatabase
 import page.stephens.sotto.shell.service.NarrationCoordinatorProvider
 import page.stephens.sotto.shell.sync.ServerAccount
@@ -226,7 +227,7 @@ class SyncUiTest {
 
             val uploadGate = CompletableDeferred<Result<String>>()
             fake.nextUpload = {
-                fake.setUploading("loc-1", true)
+                fake.setUploading(localRow, true)
                 uploadGate.await()
             }
 
@@ -236,7 +237,7 @@ class SyncUiTest {
             compose.onNodeWithText("Upload to account").performClick()
             compose.waitForIdle()
             assertEquals(2, fake.uploadCalls.get())
-            assertEquals(localRow.id to localRow.createdAt, fake.lastUpload)
+            assertEquals(OrationIdentity(localRow.id, localRow.createdAt), fake.lastUpload)
 
             // Opening sheet while still uploading renders Uploading... and disables duplicate clicks.
             compose.onNodeWithText("Local Essay").performTouchInput { longClick() }
@@ -247,7 +248,7 @@ class SyncUiTest {
 
             // Finishing upload shows success Toast.
             runBlocking(Dispatchers.IO) { dao.markSynced(localRow.id, "local-essay.aac", 10L) }
-            fake.setUploading("loc-1", false)
+            fake.setUploading(localRow, false)
             uploadGate.complete(Result.success("Uploaded as local-essay.aac"))
             compose.waitForIdle()
             ShadowLooper.idleMainLooper()
@@ -270,6 +271,7 @@ class SyncUiTest {
         val db = SottoDatabase.open(app)
         val dao = db.orations()
         runBlocking(Dispatchers.IO) { dao.insert(row) }
+        fake.setConnected("reader@example.com")
 
         ActivityScenario.launch(SottoActivity::class.java).use {
             compose.waitUntil(3_000) {
@@ -285,8 +287,10 @@ class SyncUiTest {
             assertEquals(2, compose.onAllNodesWithText("Renamed Essay").fetchSemanticsNodes().size)
             compose.onNodeWithText("Close").performClick()
 
+            fake.setUploading(row, true)
             compose.onNodeWithText("Renamed Essay").performTouchInput { longClick() }
             compose.onNodeWithText("Export audio").assertIsDisplayed()
+            compose.onNodeWithText("Uploading...").assertIsNotEnabled()
             runBlocking(Dispatchers.IO) {
                 db.runInTransaction {
                     dao.delete(row.id)
@@ -300,6 +304,8 @@ class SyncUiTest {
 
             compose.onNodeWithText("Replacement Essay").performTouchInput { longClick() }
             compose.onNodeWithText("Export audio").assertIsDisplayed()
+            compose.onNodeWithText("Uploading...").assertDoesNotExist()
+            compose.onNodeWithText("Upload to account").assertIsNotEnabled()
             runBlocking(Dispatchers.IO) { dao.delete(row.id) }
             compose.waitUntil(3_000) {
                 compose.onAllNodesWithText("Replacement Essay").fetchSemanticsNodes().isEmpty()
@@ -385,7 +391,7 @@ class SyncUiTest {
         var narrateIdToReturn: String = "req-default"
         val downloadCalls = AtomicInteger(0)
         val uploadCalls = AtomicInteger(0)
-        var lastUpload: Pair<String, Long>? = null
+        var lastUpload: OrationIdentity? = null
         val acknowledgedRequestIds = mutableListOf<String>()
 
         fun setConnected(email: String, capabilities: ServerAccount? = null) {
@@ -411,9 +417,10 @@ class SyncUiTest {
             _state.update { it.copy(activeDownloads = it.activeDownloads - id) }
         }
 
-        fun setUploading(id: String, uploading: Boolean) {
+        fun setUploading(oration: OrationEntity, uploading: Boolean) {
+            val identity = OrationIdentity(oration.id, oration.createdAt)
             _state.update {
-                val next = if (uploading) it.activeUploads + id else it.activeUploads - id
+                val next = if (uploading) it.activeUploads + identity else it.activeUploads - identity
                 it.copy(activeUploads = next)
             }
         }
@@ -464,7 +471,7 @@ class SyncUiTest {
 
         override suspend fun upload(orationId: String, expectedCreatedAt: Long): Result<String> {
             uploadCalls.incrementAndGet()
-            lastUpload = orationId to expectedCreatedAt
+            lastUpload = OrationIdentity(orationId, expectedCreatedAt)
             return nextUpload()
         }
 

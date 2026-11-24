@@ -8,11 +8,24 @@ matching requests, and links the same unlinked row in the transaction that
 writes the upload log. The link preserves `updatedAt` for the existing rename
 conflict rule.
 
+The Standards and Spec review regressions exposed an account change between
+upload validation and the link write. The credential mutex now orders account
+changes with the link commit. The Standards review also reproduced a
+replacement sheet showing an earlier Oration's transfer. Selection and upload
+progress now carry the same ID and creation time.
+
 The focused Robolectric tests reproduced the stale upload action after linking
 and the stale upload name `old-title.aac` before the fix. Both passed after the
 fix. Before and after captures render the open sheet after progress clears.
 The host had no attached device and the Android emulator could not access
 `/dev/kvm`.
+
+Final verification passed with 180 local and 219 sync unit tests and no lint
+errors. The Robolectric screenshot goldens verified in both flavors.
+
+```sh
+./gradlew --max-workers=2 lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest -Proborazzi.record=false -Proborazzi.verify=true --console=plain
+```
 
 2026-11-19: Issue #34 deepens client Oration playback behind `OrationPlayer`
 (`shell/playback/OrationPlayer.kt`) with internal `PlayerTransport` and

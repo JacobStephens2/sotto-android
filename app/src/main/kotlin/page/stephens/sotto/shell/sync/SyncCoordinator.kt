@@ -4,6 +4,7 @@ import android.content.Context
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.StateFlow
 import page.stephens.sotto.engine.store.OrationEntity
+import page.stephens.sotto.engine.store.OrationIdentity
 import page.stephens.sotto.engine.store.OrationStatus
 
 /** What the account may do server-side (docs/12-api-contract.md, /api/v1/me).
@@ -50,7 +51,7 @@ data class SyncState(
     val capabilities: ServerAccount? = null,
     val syncingLibrary: Boolean = false,
     val activeDownloads: Map<String, Int> = emptyMap(),
-    val activeUploads: Set<String> = emptySet(),
+    val activeUploads: Set<OrationIdentity> = emptySet(),
     val authBusy: Boolean = false,
     val authStatus: String? = null,
     val accountSyncStatus: String? = null,

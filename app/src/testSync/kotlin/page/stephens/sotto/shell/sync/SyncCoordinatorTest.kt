@@ -81,6 +81,7 @@ class SyncCoordinatorTest {
     private fun buildCoordinator(
         pollIntervalMs: Long = 5L,
         maxPollFailures: Int = 3,
+        clock: () -> Long = { nowMs },
     ): RealSyncCoordinator = RealSyncCoordinator(
         db = db,
         filesDir = filesDir,
@@ -89,7 +90,7 @@ class SyncCoordinatorTest {
         narrationFacts = narrationFacts,
         publication = publication,
         ioDispatcher = Dispatchers.IO,
-        clock = { nowMs },
+        clock = clock,
         idGenerator = { "id-${nextId.getAndIncrement()}" },
         pollIntervalMs = pollIntervalMs,
         maxPollFailures = maxPollFailures,
@@ -546,6 +547,63 @@ class SyncCoordinatorTest {
         assertEquals(row, db.orations().byId(row.id))
         assertEquals(0, db.joblog().count(row.id, "uploaded"))
         assertEquals(2, server.uploads.size)
+    }
+
+    @Test
+    fun `upload linking rejects an account replaced after upload validation`() = runBlocking {
+        val row = OrationEntity(
+            "o-late-link", "Essay", "COMPLETE", "af_heart", 10, 1,
+            createdAt = 1_000L, updatedAt = 1_000L,
+        )
+        uploadAcrossAccountReplacement(row)
+        assertEquals(row, db.orations().byId(row.id))
+        assertEquals(0, db.joblog().count(row.id, "uploaded"))
+    }
+
+    @Test
+    fun `account replacement after upload validation prevents the stale link`() = runBlocking {
+        val row = OrationEntity(
+            "o-stale-link", "Essay", "COMPLETE", "af_heart", 10, 1,
+            createdAt = 1_000L, updatedAt = 1_000L,
+        )
+        assertTrue(uploadAcrossAccountReplacement(row).isFailure)
+        assertNull(db.orations().byId(row.id)?.serverName)
+        assertEquals(0, db.joblog().count(row.id, "uploaded"))
+    }
+
+    private suspend fun uploadAcrossAccountReplacement(row: OrationEntity): Result<String> {
+        val pauseBeforeLink = AtomicBoolean(false)
+        val beforeLink = CompletableDeferred<Unit>()
+        val releaseLink = CountDownLatch(1)
+        val coord = buildCoordinator(clock = {
+            if (pauseBeforeLink.compareAndSet(true, false)) {
+                beforeLink.complete(Unit)
+                check(releaseLink.await(10, TimeUnit.SECONDS))
+            }
+            nowMs
+        })
+        assertTrue(coord.connect("http://s", "old@example.com", "pw").isSuccess)
+        val dir = File(filesDir, "orations/${row.id}").apply { mkdirs() }
+        File(dir, "audio.aac").writeBytes(byteArrayOf(1))
+        db.orations().insert(row)
+        server.onUpload = {
+            pauseBeforeLink.set(true)
+            true
+        }
+
+        return withTimeout(10_000) {
+            val oldUpload = async { coord.upload(row.id, row.createdAt) }
+            try {
+                beforeLink.await()
+                val reconnect = async { coord.connect("http://s", "new@example.com", "pw") }
+                coord.state.first { it.accountEmail == "new@example.com" }
+                releaseLink.countDown()
+                assertTrue(reconnect.await().isSuccess)
+                oldUpload.await()
+            } finally {
+                releaseLink.countDown()
+            }
+        }
     }
 
     @Test
