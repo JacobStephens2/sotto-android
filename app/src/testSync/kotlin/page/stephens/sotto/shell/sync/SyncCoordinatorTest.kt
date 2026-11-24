@@ -4,14 +4,18 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -326,11 +330,81 @@ class SyncCoordinatorTest {
         File(upDir, "audio.aac").writeBytes(byteArrayOf(1, 2, 3, 4))
         server.onLibrary = { throw IOException("transient refresh hiccup") }
 
-        val upRes = coord.upload(uploadRow)
+        val upRes = coord.upload(uploadRow.id, uploadRow.createdAt)
         assertTrue(upRes.isSuccess)
         val synced = db.orations().byId("o-up")!!
         assertEquals("fresh-essay.aac", synced.serverName)
         assertEquals(1, db.joblog().count("o-up", "uploaded"))
+    }
+
+    @Test
+    fun `upload uses current saved metadata and rejects another request after linking`() = runBlocking {
+        val coord = buildCoordinator()
+        assertTrue(coord.connect("http://s", "a@example.com", "pw").isSuccess)
+        val observed = OrationEntity(
+            "o-renamed", "Old Title", "COMPLETE", "af_heart", 4, 1,
+            createdAt = 1_000L, updatedAt = 1_000L,
+        )
+        val saved = observed.copy(
+            title = "Current Essay",
+            status = "STOPPED",
+            voiceId = "am_adam",
+            words = 25,
+            narratedMs = 2_100L,
+            updatedAt = 1_234L,
+        )
+        db.orations().insert(observed)
+        db.orations().update(saved)
+        val dir = File(filesDir, "orations/${saved.id}").apply { mkdirs() }
+        File(dir, "audio.aac").writeBytes(ByteArray(24_000))
+
+        assertEquals("Uploaded as current-essay.aac", coord.upload(observed.id, observed.createdAt).getOrThrow())
+        val request = server.uploads.single()
+        assertEquals("current-essay.aac", request.name)
+        val metadata = JSONObject(request.metaJson)
+        assertEquals("Current Essay", metadata.getString("title"))
+        assertEquals(25, metadata.getInt("words"))
+        assertEquals("am_adam", metadata.getString("voice"))
+        assertEquals(2, metadata.getInt("secs"))
+        assertEquals(3, metadata.getInt("duration_secs"))
+        assertEquals("current-essay.aac", db.orations().byId(saved.id)!!.serverName)
+        assertEquals(1_234L, db.orations().byId(saved.id)!!.updatedAt)
+        val uploaded = db.joblog().recent().single { it.event == "uploaded" }
+        assertEquals("Current Essay", uploaded.title)
+
+        assertTrue(coord.upload(observed.id, observed.createdAt).isFailure)
+        assertEquals(1, server.uploads.size)
+        assertEquals(1, db.joblog().count(saved.id, "uploaded"))
+    }
+
+    @Test
+    fun `upload rejects missing replaced and ineligible rows without transfer or log`() = runBlocking {
+        val coord = buildCoordinator()
+        assertTrue(coord.connect("http://s", "a@example.com", "pw").isSuccess)
+        val observed = OrationEntity(
+            "gate", "Essay", "COMPLETE", "af_heart", 10, 1,
+            createdAt = 1_000L, updatedAt = 1_000L,
+        )
+        val dir = File(filesDir, "orations/${observed.id}").apply { mkdirs() }
+        File(dir, "audio.aac").writeBytes(byteArrayOf(1))
+
+        val rejectedRows = listOf(
+            null,
+            observed.copy(createdAt = 2_000L),
+            observed.copy(downloaded = false),
+            observed.copy(serverName = "already-linked.aac"),
+            observed.copy(status = "QUEUED"),
+            observed.copy(status = "NARRATING"),
+            observed.copy(status = "ERROR"),
+        )
+        for (saved in rejectedRows) {
+            db.orations().delete(observed.id)
+            if (saved != null) db.orations().insert(saved)
+            assertTrue("Expected rejection for saved row $saved", coord.upload(observed.id, observed.createdAt).isFailure)
+            assertEquals(saved, db.orations().byId(observed.id))
+        }
+        assertTrue(server.uploads.isEmpty())
+        assertEquals(0, db.joblog().count(observed.id, "uploaded"))
     }
 
     @Test
@@ -358,32 +432,120 @@ class SyncCoordinatorTest {
 
         val uploadEntered = CompletableDeferred<Unit>()
         val releaseUpload = CompletableDeferred<Unit>()
-        val putCount = AtomicInteger(0)
+        val refreshEntered = CompletableDeferred<Unit>()
+        val releaseRefresh = CompletableDeferred<Unit>()
+        val remote = RemoteEntry("race-essay.aac", "Race Essay", 20, 1, "af_heart", 3, 1, 999L, false)
         server.onUpload = { name ->
-            putCount.incrementAndGet()
+            // The server can list the accepted upload before the PUT response reaches the app.
+            server.libraryEntries = listOf(remote.copy(name = name), remote.copy(name = "race-essay-o-race.aac"))
             uploadEntered.complete(Unit)
             releaseUpload.await()
-            // Server already lists the uploaded item while upload() hasn't finished markSynced yet.
-            server.libraryEntries = listOf(RemoteEntry(name, "Race Essay", 20, 1, "af_heart", 3, 1, 999L, false))
             true
         }
-        server.onLibrary = { server.libraryEntries }
+        server.onLibrary = {
+            if (db.orations().byId(row.id)?.serverName != null) {
+                refreshEntered.complete(Unit)
+                releaseRefresh.await()
+            }
+            server.libraryEntries
+        }
 
-        val up1 = async { coord.upload(row) }
-        uploadEntered.await()
-        val up2 = async { coord.upload(row) }
-        val concurrentSync = async { coord.syncNow() }
-        assertTrue(concurrentSync.await().isSuccess)
-        // Must NOT have inserted a duplicate server row while race-essay.aac was uploading.
-        assertEquals(1, db.orations().all().size)
+        withTimeout(10_000) {
+            withContext(Dispatchers.IO) {
+                // The joiners run admission on the same dispatcher before their first suspension.
+                val first = async { coord.upload(row.id, row.createdAt) }
+                uploadEntered.await()
+                val joinDuringPut = async(start = CoroutineStart.UNDISPATCHED) { coord.upload(row.id, row.createdAt) }
+                assertFalse(joinDuringPut.isCompleted)
+                assertTrue(coord.syncNow().isSuccess)
+                assertEquals(1, db.orations().all().size)
 
-        releaseUpload.complete(Unit)
-        assertTrue(up1.await().isSuccess)
-        assertTrue(up2.await().isSuccess)
-        assertEquals(1, putCount.get())
+                releaseUpload.complete(Unit)
+                refreshEntered.await()
+                val joinDuringRefresh = async(start = CoroutineStart.UNDISPATCHED) { coord.upload(row.id, row.createdAt) }
+                assertFalse(joinDuringRefresh.isCompleted)
+                releaseRefresh.complete(Unit)
+                val results = awaitAll(first, joinDuringPut, joinDuringRefresh)
+                assertEquals(List(3) { "Uploaded as race-essay.aac" }, results.map { it.getOrThrow() })
+            }
+        }
+        assertEquals(1, server.uploads.size)
         assertEquals(1, db.orations().all().size)
         assertEquals("race-essay.aac", db.orations().byId("o-race")!!.serverName)
         assertEquals(999L, db.orations().byId("o-race")!!.serverMtime)
+    }
+
+    @Test
+    fun `upload completion leaves replaced and already linked rows alone`() = runBlocking {
+        val coord = buildCoordinator()
+        assertTrue(coord.connect("http://s", "a@example.com", "pw").isSuccess)
+        val row = OrationEntity(
+            "gate", "Gate Essay", "COMPLETE", "af_heart", 10, 1,
+            createdAt = 1_000L, updatedAt = 1_000L,
+        )
+        val dir = File(filesDir, "orations/${row.id}").apply { mkdirs() }
+        File(dir, "audio.aac").writeBytes(byteArrayOf(1))
+        db.orations().insert(row)
+        val changedRows = listOf(
+            row.copy(title = "Replacement Essay", createdAt = 2_000L),
+            row.copy(serverName = "other-upload.aac", serverMtime = 15L),
+        )
+        for (changed in changedRows) {
+            db.orations().update(row)
+            server.onUpload = {
+                db.orations().update(changed)
+                true
+            }
+
+            assertTrue(coord.upload(row.id, row.createdAt).isFailure)
+            assertEquals(changed, db.orations().byId(row.id))
+            assertEquals(0, db.joblog().count(row.id, "uploaded"))
+        }
+        assertEquals(2, server.uploads.size)
+    }
+
+    @Test
+    fun `upload completion is fenced by account replacement and deletion`() = runBlocking {
+        val coord = buildCoordinator()
+        assertTrue(coord.connect("http://s", "old@example.com", "pw").isSuccess)
+        val row = OrationEntity(
+            "o-fenced", "Essay", "COMPLETE", "af_heart", 10, 1,
+            createdAt = 1_000L, updatedAt = 1_000L,
+        )
+        val dir = File(filesDir, "orations/${row.id}").apply { mkdirs() }
+        File(dir, "audio.aac").writeBytes(byteArrayOf(1))
+        db.orations().insert(row)
+
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        server.onUpload = {
+            entered.complete(Unit)
+            withContext(NonCancellable) { release.await() }
+            true
+        }
+        withTimeout(10_000) {
+            val oldUpload = async { coord.upload(row.id, row.createdAt) }
+            try {
+                entered.await()
+                val account = async { coord.connect("http://s", "new@example.com", "pw") }
+                coord.state.first { it.accountEmail == "new@example.com" }
+                release.complete(Unit)
+                assertTrue(account.await().isSuccess)
+                assertTrue(oldUpload.await().isFailure)
+            } finally {
+                release.complete(Unit)
+            }
+        }
+        assertEquals(row, db.orations().byId(row.id))
+
+        server.onUpload = {
+            narrationFacts.value = NarrationFacts(deletingIds = setOf(row.id))
+            true
+        }
+        assertTrue(coord.upload(row.id, row.createdAt).isFailure)
+        assertEquals(row, db.orations().byId(row.id))
+        assertEquals(0, db.joblog().count(row.id, "uploaded"))
+        assertEquals(2, server.uploads.size)
     }
 
     @Test
@@ -875,9 +1037,9 @@ class SyncCoordinatorTest {
                 updatedAt = 1_000L,
                 downloaded = true,
             )
-            val res = coord.upload(row)
-            assertTrue(res.isFailure)
-            assertTrue(res.exceptionOrNull() is IllegalArgumentException)
+            db.orations().insert(row)
+            val res = coord.upload(row.id, row.createdAt)
+            assertEquals("no audio to upload", res.exceptionOrNull()?.message)
             assertTrue("Expected upload missing-audio check to dispatch to ioDispatcher", ioDispatches.get() > before)
         } finally {
             coordinators.remove(coord)
@@ -893,9 +1055,12 @@ class SyncCoordinatorTest {
         override fun clear() = synchronized(this) { current = null }
     }
 
+    private data class UploadRequest(val name: String, val metaJson: String)
+
     private class FakeRemoteServer : RemoteServer {
         var libraryEntries: List<RemoteEntry> = emptyList()
         val renames = CopyOnWriteArrayList<Pair<String, String>>()
+        val uploads = CopyOnWriteArrayList<UploadRequest>()
         var onLibrary: (suspend (String) -> List<RemoteEntry>)? = null
         var onDownloadAudio: (suspend (String, File) -> Unit)? = null
         var onDownloadText: (suspend (String, File) -> Boolean)? = null
@@ -940,7 +1105,10 @@ class SyncCoordinatorTest {
             text: File?,
             metaJson: String,
             ifNoneMatch: Boolean,
-        ): Boolean = onUpload?.invoke(name) ?: true
+        ): Boolean {
+            uploads.add(UploadRequest(name, metaJson))
+            return onUpload?.invoke(name) ?: true
+        }
 
         override suspend fun rename(serverUrl: String, token: String, name: String, title: String) {
             renames.add(name to title)

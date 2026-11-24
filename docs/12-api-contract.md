@@ -91,11 +91,18 @@ PUT with `If-None-Match: *`, 413 too large, 429 rate-limited.
   remote entries insert as SERVER_ONLY (metadata only) without duplicating rows
   under concurrent syncs; user downloads on demand, staged under
   `filesDir/sync-staging/` outside `orations/`.
-- **Push**: local COMPLETE/STOPPED orations without `serverName` upload with
-  `If-None-Match: *` and retry on `409` conflict using `<slug>-<6 chars of id>`
-  as the expected target name; push rename and upload then run a best-effort
-  library refresh so `serverMtime` captures server time without failing the
-  completed push or upload.
+- **Push**: The Library offers explicit upload for a connected account and a
+  downloaded COMPLETE/STOPPED Oration without `serverName`. The coordinator
+  admits uploads by ID and expected creation time, using the title and metadata
+  from the current Room row. Same-session requests for the same in-flight
+  Oration share one transfer through its library refresh. Reconciliation
+  skips new rows for reserved names while the upload is unlinked.
+- **Upload names and linking**: upload with `If-None-Match: *` and retry on
+  `409` using `<slug>-<6 chars of id>`. At completion, the current session
+  can link only the same, still-unlinked Oration outside active deletion. The
+  link and one uploaded log commit together, preserving `updatedAt`. Push
+  rename and upload run a best-effort library refresh to capture the server's
+  `serverMtime`.
 - **Renames**: last-write-wins using `e.mtime * 1000` (ms); pulled remote
   renames update both `title` and `updatedAt` (`mtime * 1000`) and record a
   local `"renamed"` activity log entry. Playhead persistence (`setPlayhead`),

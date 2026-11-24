@@ -6,8 +6,18 @@ Oration publication shares final-file ownership (issue #28). Document intake
 owns complete validation (issue #30). Exported MediaSession authorization
 restricts controllers across `onGetSession` and `onConnect` (issue #32).
 PlayerScreen delegates to client `OrationPlayer` with MediaSession parity and
-unattached deletion invalidation (issue #34).
-Updated 2026-11-19.
+unattached deletion invalidation (issue #34). Library actions follow the current
+Oration and sync admits explicit uploads by identity (issue #36).
+Updated 2026-11-24.
+
+## Live Library selection and upload admission (issue #36)
+
+- [x] Resolve the open sheet from current Room rows and close it when its
+      selected ID and creation time disappear.
+- [x] Share local upload eligibility, admit by ID and creation time, reserve
+      both server names, and link and log only the matching unlinked Oration.
+- [x] Cover live selection, upload feedback, admission and transfer sharing
+      through `SyncUiTest` and `SyncCoordinatorTest`.
 
 ## Client Oration player (issue #34)
 

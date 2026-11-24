@@ -193,7 +193,7 @@ class SyncUiTest {
     }
 
     @Test
-    fun `oration sheet disables duplicate upload taps while uploading and surfaces result toasts`() {
+    fun `open oration sheet follows upload progress and removes the linked action`() {
         val localRow = OrationEntity(
             id = "loc-1",
             title = "Local Essay",
@@ -208,7 +208,8 @@ class SyncUiTest {
             updatedAt = 1_000L,
             downloaded = true,
         )
-        runBlocking(Dispatchers.IO) { SottoDatabase.open(app).orations().insert(localRow) }
+        val dao = SottoDatabase.open(app).orations()
+        runBlocking(Dispatchers.IO) { dao.insert(localRow) }
         fake.setConnected("reader@example.com")
 
         ActivityScenario.launch(SottoActivity::class.java).use {
@@ -216,32 +217,94 @@ class SyncUiTest {
                 compose.onAllNodesWithText("Local Essay").fetchSemanticsNodes().isNotEmpty()
             }
 
+            fake.nextUpload = { Result.failure(IOException("network dropped")) }
+            compose.onNodeWithText("Local Essay").performTouchInput { longClick() }
+            compose.onNodeWithText("Upload to account").performClick()
+            compose.waitForIdle()
+            ShadowLooper.idleMainLooper()
+            assertEquals("Upload failed: network dropped", ShadowToast.getTextOfLatestToast())
+
             val uploadGate = CompletableDeferred<Result<String>>()
             fake.nextUpload = {
                 fake.setUploading("loc-1", true)
                 uploadGate.await()
             }
 
-            // First upload click starts upload and dismisses sheet.
+            // Starting the upload dismisses the sheet.
             compose.onNodeWithText("Local Essay").performTouchInput { longClick() }
             compose.waitForIdle()
             compose.onNodeWithText("Upload to account").performClick()
             compose.waitForIdle()
-            assertEquals(1, fake.uploadCalls.get())
+            assertEquals(2, fake.uploadCalls.get())
+            assertEquals(localRow.id to localRow.createdAt, fake.lastUpload)
 
             // Opening sheet while still uploading renders Uploading... and disables duplicate clicks.
             compose.onNodeWithText("Local Essay").performTouchInput { longClick() }
             compose.waitForIdle()
-            compose.onNodeWithText("Uploading...").performClick()
+            compose.onNodeWithText("Uploading...").assertIsNotEnabled().performClick()
             compose.waitForIdle()
-            assertEquals(1, fake.uploadCalls.get())
+            assertEquals(2, fake.uploadCalls.get())
 
             // Finishing upload shows success Toast.
+            runBlocking(Dispatchers.IO) { dao.markSynced(localRow.id, "local-essay.aac", 10L) }
             fake.setUploading("loc-1", false)
             uploadGate.complete(Result.success("Uploaded as local-essay.aac"))
             compose.waitForIdle()
             ShadowLooper.idleMainLooper()
             assertEquals("Uploaded as local-essay.aac", ShadowToast.getTextOfLatestToast())
+            compose.waitUntil(3_000) {
+                compose.onAllNodesWithText("synced", substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText("Export audio").assertIsDisplayed()
+            compose.onNodeWithText("Uploading...").assertDoesNotExist()
+            compose.onNodeWithText("Upload to account").assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun `open oration sheet follows a rename and closes on replacement or removal`() {
+        val row = OrationEntity(
+            "gate", "Gate Essay", "COMPLETE", "af_heart", 80, 1,
+            createdAt = 1_000L, updatedAt = 1_000L,
+        )
+        val db = SottoDatabase.open(app)
+        val dao = db.orations()
+        runBlocking(Dispatchers.IO) { dao.insert(row) }
+
+        ActivityScenario.launch(SottoActivity::class.java).use {
+            compose.waitUntil(3_000) {
+                compose.onAllNodesWithText(row.title).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText(row.title).performTouchInput { longClick() }
+
+            runBlocking(Dispatchers.IO) { dao.rename(row.id, "Renamed Essay", 2_000L) }
+            compose.waitUntil(3_000) {
+                compose.onAllNodesWithText("Renamed Essay").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText("View source text").performClick()
+            assertEquals(2, compose.onAllNodesWithText("Renamed Essay").fetchSemanticsNodes().size)
+            compose.onNodeWithText("Close").performClick()
+
+            compose.onNodeWithText("Renamed Essay").performTouchInput { longClick() }
+            compose.onNodeWithText("Export audio").assertIsDisplayed()
+            runBlocking(Dispatchers.IO) {
+                db.runInTransaction {
+                    dao.delete(row.id)
+                    dao.insert(row.copy(title = "Replacement Essay", createdAt = 3_000L))
+                }
+            }
+            compose.waitUntil(3_000) {
+                compose.onAllNodesWithText("Replacement Essay").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText("Export audio").assertDoesNotExist()
+
+            compose.onNodeWithText("Replacement Essay").performTouchInput { longClick() }
+            compose.onNodeWithText("Export audio").assertIsDisplayed()
+            runBlocking(Dispatchers.IO) { dao.delete(row.id) }
+            compose.waitUntil(3_000) {
+                compose.onAllNodesWithText("Replacement Essay").fetchSemanticsNodes().isEmpty()
+            }
+            compose.onNodeWithText("Export audio").assertDoesNotExist()
         }
     }
 
@@ -318,10 +381,11 @@ class SyncUiTest {
 
         var nextSyncResult: suspend () -> Result<String> = { Result.success("Synced: 0 new from server, 0 renamed here, 0 renamed there") }
         var nextDownload: suspend (OrationEntity) -> Result<Unit> = { Result.success(Unit) }
-        var nextUpload: suspend (OrationEntity) -> Result<String> = { Result.success("Uploaded") }
+        var nextUpload: suspend () -> Result<String> = { Result.success("Uploaded") }
         var narrateIdToReturn: String = "req-default"
         val downloadCalls = AtomicInteger(0)
         val uploadCalls = AtomicInteger(0)
+        var lastUpload: Pair<String, Long>? = null
         val acknowledgedRequestIds = mutableListOf<String>()
 
         fun setConnected(email: String, capabilities: ServerAccount? = null) {
@@ -398,9 +462,10 @@ class SyncUiTest {
             return nextDownload(oration)
         }
 
-        override suspend fun upload(oration: OrationEntity): Result<String> {
+        override suspend fun upload(orationId: String, expectedCreatedAt: Long): Result<String> {
             uploadCalls.incrementAndGet()
-            return nextUpload(oration)
+            lastUpload = orationId to expectedCreatedAt
+            return nextUpload()
         }
 
         override suspend fun refreshAccount(force: Boolean): Result<ServerAccount> =

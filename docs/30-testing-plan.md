@@ -86,13 +86,14 @@
     single-flight sync coalescing, remote LWW rename surviving frequent playhead
     ticks, external `sync-staging` survival across `sweepOrphans()`, deletion
     cancellation, fresh-row preparation and account-replacement publication,
-    upload dedupe, and bounded server
-    narration polling edge cases.
+    upload admission from current Room metadata, transfer sharing and
+    reconciliation, identity-fenced linking, and bounded server narration
+    polling edge cases.
   - `SyncUiTest`: Robolectric Compose caller coverage for Account connection/sync
     across recreation and off-main disconnect, Library download progress across
-    recreation, dedupe, failure toasts, and refresh feedback, Oration sheet upload
-    dedupe and result toasts, and Confirm capability refresh and
-    requestId-matched server narration across recreation.
+    recreation, dedupe, failure toasts, and refresh feedback, live Oration sheet
+    selection and upload progress with result toasts, and Confirm capability
+    refresh and requestId-matched server narration across recreation.
 
 **2. Instrumented tests (Room + engine, emulator x86_64 debug variant)**
 - Resume correctness: kill the process mid-narration at randomized chunk

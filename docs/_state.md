@@ -1,5 +1,19 @@
 # _state.md - sotto-android session handoff
 
+2026-11-24 - Issue #36 ties the Library sheet and its drafts to an Oration's
+ID and creation time. The lifecycle-collected Room list supplies the current
+row. Removing or replacing that row closes the sheet. `SyncCoordinator.upload`
+reads and reserves the current row off-main, shares the retained transfer with
+matching requests, and links the same unlinked row in the transaction that
+writes the upload log. The link preserves `updatedAt` for the existing rename
+conflict rule.
+
+The focused Robolectric tests reproduced the stale upload action after linking
+and the stale upload name `old-title.aac` before the fix. Both passed after the
+fix. Before and after captures render the open sheet after progress clears.
+The host had no attached device and the Android emulator could not access
+`/dev/kvm`.
+
 2026-11-19: Issue #34 deepens client Oration playback behind `OrationPlayer`
 (`shell/playback/OrationPlayer.kt`) with internal `PlayerTransport` and
 `PlayerCommands` seams and `OrationPlayer.setFactoryForTest`, configures

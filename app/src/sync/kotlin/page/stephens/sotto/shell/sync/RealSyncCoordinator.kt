@@ -5,6 +5,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -13,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,10 +74,11 @@ internal class RealSyncCoordinator(
 
     private data class ActiveUpload(
         val epoch: Long,
+        val createdAt: Long,
         val job: Job,
         val candidateNames: Set<String>,
         val deferred: Deferred<Result<String>>,
-        @Volatile var localCommitted: Boolean = false,
+        var localCommitted: Boolean = false,
     )
 
     private data class RenamePush(
@@ -295,47 +298,73 @@ internal class RealSyncCoordinator(
         return deferred.await()
     }
 
-    override suspend fun upload(oration: OrationEntity): Result<String> {
+    override suspend fun upload(orationId: String, expectedCreatedAt: Long): Result<String> {
         initDone.await()
+        val session = synchronized(coordinatorLock) { currentSession }
+            ?: return Result.failure(IllegalStateException("Not connected"))
+        val admission = try {
+            withContext(ioDispatcher) {
+                // Order admission after any preceding upload's link commit.
+                val reservation = db.runInTransaction<Result<ActiveUpload>> {
+                    val oration = db.orations().byId(orationId)
+                    synchronized(coordinatorLock) {
+                        if (currentSession?.epoch != session.epoch) {
+                            return@runInTransaction Result.failure(CancellationException("Sync session superseded"))
+                        }
+                        if (orationId in narrationFacts.value.deletingIds) {
+                            return@runInTransaction Result.failure(CancellationException("Oration is being deleted"))
+                        }
+                        if (oration == null || oration.createdAt != expectedCreatedAt) {
+                            return@runInTransaction Result.failure(IllegalArgumentException("Oration missing or replaced"))
+                        }
+                        val existing = activeUploads[orationId]?.takeIf { it.deferred.isActive }
+                        if (existing != null) {
+                            return@runInTransaction if (existing.createdAt == expectedCreatedAt) {
+                                Result.success(existing)
+                            } else {
+                                Result.failure(IllegalStateException("Previous upload for this Oration ID is still finishing"))
+                            }
+                        }
+                        if (!oration.isEligibleForUpload()) {
+                            return@runInTransaction Result.failure(IllegalArgumentException("Oration is not eligible for upload"))
+                        }
+                        Result.success(reserveUploadLocked(session, oration))
+                    }
+                }
+                // Start outside Room and the lock, before returning to the caller's context.
+                reservation.onSuccess { it.job.start() }
+            }
+        } catch (c: CancellationException) {
+            throw c
+        } catch (e: Exception) {
+            return Result.failure(e)
+        }
+        return admission.getOrElse { return Result.failure(it) }.deferred.await()
+    }
+
+    private fun reserveUploadLocked(session: Session, oration: OrationEntity): ActiveUpload {
         val slug = slugifyTitle(oration.title)
         val primaryName = "$slug.aac"
         val altName = "$slug-${oration.id.take(6)}.aac"
-
-        val deferred = synchronized(coordinatorLock) {
-            val session = currentSession
-                ?: return Result.failure(IllegalStateException("Not connected"))
-            if (oration.id in narrationFacts.value.deletingIds) {
-                return Result.failure(CancellationException("Oration is being deleted"))
-            }
-            val existing = activeUploads[oration.id]
-            if (existing != null && existing.epoch == session.epoch && existing.deferred.isActive) {
-                existing.deferred
-            } else {
-                val created = CompletableDeferred<Result<String>>()
-                val entryJob = Job(session.scope.coroutineContext[Job])
-                val entry = ActiveUpload(session.epoch, entryJob, setOf(primaryName, altName), created)
-                activeUploads[oration.id] = entry
-                publishTransferStateLocked()
-
-                session.scope.launch(entryJob) {
-                    val res = runUpload(session, oration, primaryName, altName)
-                    created.complete(res)
-                }.invokeOnCompletion { err ->
-                    entryJob.complete()
-                    synchronized(coordinatorLock) {
-                        if (activeUploads[oration.id] === entry) {
-                            activeUploads.remove(oration.id)
-                            publishTransferStateLocked()
-                        }
-                    }
-                    if (!created.isCompleted) {
-                        created.complete(Result.failure(err ?: CancellationException("Upload cancelled")))
-                    }
+        val result = CompletableDeferred<Result<String>>()
+        val job = session.scope.launch(start = CoroutineStart.LAZY) {
+            result.complete(runUpload(session, oration, primaryName, altName))
+        }
+        val entry = ActiveUpload(session.epoch, oration.createdAt, job, setOf(primaryName, altName), result)
+        activeUploads[oration.id] = entry
+        publishTransferStateLocked()
+        job.invokeOnCompletion { err ->
+            synchronized(coordinatorLock) {
+                if (activeUploads[oration.id] === entry) {
+                    activeUploads.remove(oration.id)
+                    publishTransferStateLocked()
                 }
-                created
+            }
+            if (!result.isCompleted) {
+                result.complete(Result.failure(err ?: CancellationException("Upload cancelled")))
             }
         }
-        return deferred.await()
+        return entry
     }
 
     override suspend fun refreshAccount(force: Boolean): Result<ServerAccount> {
@@ -438,15 +467,14 @@ internal class RealSyncCoordinator(
             var renamedLocal = 0
             var renamedRemote = 0
 
-            val activeUploadTargets = synchronized(coordinatorLock) {
-                activeUploads.values
-                    .filter { it.epoch == session.epoch && !it.localCommitted }
-                    .flatMap { it.candidateNames }
-                    .toSet()
-            }
-
             db.runInTransaction {
                 checkSessionActive(session)
+                val activeUploadTargets = synchronized(coordinatorLock) {
+                    activeUploads.values
+                        .filter { it.epoch == session.epoch && !it.localCommitted }
+                        .flatMap { it.candidateNames }
+                        .toSet()
+                }
                 for (e in entries) {
                     val row = dao.byServerName(e.name)
                     if (row == null) {
@@ -635,19 +663,18 @@ internal class RealSyncCoordinator(
                 altName
             }
 
-            var committedRows = 0
+            val uploadContext = coroutineContext
             db.runInTransaction {
+                uploadContext.ensureActive()
                 checkSessionActive(session)
                 if (oration.id in narrationFacts.value.deletingIds) {
                     throw CancellationException("Oration deleted during upload")
                 }
-                committedRows = db.orations().markSynced(oration.id, finalName, clock() / 1000)
-                if (committedRows > 0) {
-                    JobLog(db.joblog(), clock).log("uploaded", oration.title, oration.id, finalName)
+                val linked = db.orations().linkUpload(oration.id, oration.createdAt, finalName, clock() / 1000)
+                if (linked == 0) {
+                    throw CancellationException("Oration missing, replaced, or already linked after upload")
                 }
-            }
-            if (committedRows == 0) {
-                throw CancellationException("Oration missing after upload")
+                JobLog(db.joblog(), clock).log("uploaded", oration.title, oration.id, finalName)
             }
 
             // Mark candidate target names committed so follow-up refresh matches the updated row

@@ -88,6 +88,12 @@ interface OrationDao {
     @Query("UPDATE orations SET serverName = :name, serverMtime = :mtime WHERE id = :id")
     fun markSynced(id: String, name: String, mtime: Long): Int
 
+    @Query(
+        """UPDATE orations SET serverName = :name, serverMtime = :mtime
+           WHERE id = :id AND createdAt = :expectedCreatedAt AND serverName IS NULL""",
+    )
+    fun linkUpload(id: String, expectedCreatedAt: Long, name: String, mtime: Long): Int
+
     @Query("UPDATE orations SET downloaded = 1, audioBytes = :bytes, status = 'COMPLETE' WHERE id = :id")
     fun setDownloaded(id: String, bytes: Long): Int
 
