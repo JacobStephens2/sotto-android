@@ -11,11 +11,11 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
-import android.net.Uri
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Looper
@@ -567,19 +567,13 @@ class NarrationCommandsTest {
 
     @Test
     fun `a media-button start that carries the active session URI pauses playback`() {
-        val id = "session-uri-media-button"
-        val playing = startPlaying(id)
-        val attackerUid = Process.myUid() + 401
-        ShadowBinder.setCallingUid(attackerUid)
-        try {
-            playing.service.onStartCommand(
-                mediaButton(KeyEvent.KEYCODE_MEDIA_PAUSE, data = sessionUri(playing.session)),
-                0,
-                2,
-            )
-        } finally {
-            ShadowBinder.reset()
-        }
+        val playing = startPlaying("session-uri-media-button")
+        deliverMediaButton(
+            playing,
+            Process.myUid() + 401,
+            KeyEvent.KEYCODE_MEDIA_PAUSE,
+            sessionUri(playing.session),
+        )
         await { !playing.player.playWhenReady }
 
         assertFalse(playing.player.playWhenReady)
@@ -623,6 +617,21 @@ class NarrationCommandsTest {
         await { !playing.player.playWhenReady }
 
         assertFalse(playing.player.playWhenReady)
+    }
+
+    @Test
+    fun `a media-button start with no binder caller is ignored`() {
+        val playing = startPlaying("no-binder-media-button")
+        ShadowBinder.reset()
+        val noTransaction = runCatching { android.os.Binder.getCallingUidOrThrow() }.exceptionOrNull()
+        assertTrue(noTransaction is IllegalStateException)
+        assertEquals(Process.myUid(), android.os.Binder.getCallingUid())
+
+        playing.service.onStartCommand(mediaButton(KeyEvent.KEYCODE_MEDIA_PAUSE), 0, 2)
+        val paused = becameTrue(1_500) { !playing.player.playWhenReady }
+
+        assertFalse(paused)
+        assertTrue(playing.player.playWhenReady)
     }
 
     @Test
@@ -736,7 +745,7 @@ class NarrationCommandsTest {
         return Playing(service, session, player)
     }
 
-    /** Media3 1.4.1 keeps this URI package-private; notification actions address it. */
+    // Media3 1.4.1 keeps this URI package-private; notification actions address it.
     private fun sessionUri(session: MediaSession): Uri {
         val method = MediaSession::class.java.getDeclaredMethod("getUri")
         method.isAccessible = true

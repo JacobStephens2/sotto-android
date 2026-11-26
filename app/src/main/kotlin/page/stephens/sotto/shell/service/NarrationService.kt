@@ -109,7 +109,8 @@ class NarrationService : MediaSessionService() {
         // Narrate, play, stop, sleep timer, and delete are ignored here;
         // InAppNarrationService accepts them in-process (ADR-008). A media-button
         // start is forwarded only when it carries the active session URI, or when
-        // this app or the system sent it. Notification actions carry that URI.
+        // this app or the system is still the binder caller. Notification actions
+        // carry that URI.
         if (isIgnoredMediaButton(intent)) return START_NOT_STICKY
         super.onStartCommand(intent, flags, startId)
         return START_NOT_STICKY
@@ -120,7 +121,13 @@ class NarrationService : MediaSessionService() {
         val data = intent.data
         val active = activeSessionUri()
         if (data != null && active != null && data == active) return false
-        val uid = Binder.getCallingUid()
+        // onStartCommand runs after the startService transaction, so only a
+        // caller still inside one can authorize a media button without the URI.
+        val uid = try {
+            Binder.getCallingUidOrThrow()
+        } catch (_: IllegalStateException) {
+            return true
+        }
         return uid != Process.myUid() && uid != Process.SYSTEM_UID
     }
 

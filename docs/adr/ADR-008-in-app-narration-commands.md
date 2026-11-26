@@ -23,11 +23,15 @@ return the session for negative-UID internal `MediaSessionService` intents
 Media-button update (2026-11-25, issue #38):
 `NarrationService.onStartCommand` forwards `Intent.ACTION_MEDIA_BUTTON` to the
 Media3 session only when the intent data is the active session URI, or when the
-caller is this app (`Binder.getCallingUid() == Process.myUid()`) or the system
-(`Process.SYSTEM_UID`). Media3 notification actions carry that URI, so play,
-pause, and seek on the playback notification keep working. Any other
-media-button start is ignored and is not passed to `MediaSessionService`.
-Same-UID and verified trusted controller access is unchanged.
+caller is still inside a binder transaction and is this app
+(`Binder.getCallingUidOrThrow() == Process.myUid()`) or the system
+(`Process.SYSTEM_UID`). `ActivityThread` delivers `onStartCommand` after that
+transaction ends, and `Binder.getCallingUid()` then reports this process for
+every caller, so a media-button start with no session URI and no live caller
+is ignored. Media3 notification actions carry that URI, so play, pause, and
+seek on the playback notification keep working. Any other media-button start
+is ignored and is not passed to `MediaSessionService`. Same-UID and verified
+trusted controller access is unchanged.
 
 ## Decision
 
@@ -62,6 +66,7 @@ put on that intent.
   transport controls for same-UID or verified trusted controllers; rules out
   granting `MediaSession` access to untrusted or UID-mismatched controllers.
 - Rules out forwarding a media-button start that neither carries the active
-  session URI nor comes from this app or the system. Does not rule out
-  notification actions, which carry that URI, or a media-button start from
-  this app or `Process.SYSTEM_UID`.
+  session URI nor comes from this app or the system while that caller is still
+  inside a binder transaction. A start that arrives with no session URI after
+  the platform has cleared the caller is ignored. Does not rule out
+  notification actions, which carry that URI.

@@ -119,8 +119,10 @@ src/testSync/  sync-flavor JVM suites (`SottoApiContractTest`,
   `onGetSession` and `MediaSession.Callback.onConnect` (same-UID or verified
   trusted controller, plus negative-UID internal intents in `onGetSession`).
   Forward `Intent.ACTION_MEDIA_BUTTON` only when its data is the active session
-  URI, or the caller is this app or `Process.SYSTEM_UID`. Leave notification
-  actions working; they carry that URI. Ignore every other media-button start.
+  URI, or the caller is still inside a binder transaction and is this app or
+  `Process.SYSTEM_UID`. A start with no session URI and no live caller is
+  ignored. Leave notification actions working; they carry that URI. Ignore
+  every other media-button start.
 - Naming mirrors [the domain glossary](../GLOSSARY.md): Oration, chunk,
   Narration worker, narrate - not "track,"
   "segment," "synthesize" in user-facing or domain code. ("Synthesis" is

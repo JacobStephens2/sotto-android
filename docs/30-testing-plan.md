@@ -156,7 +156,8 @@ internal `MediaSessionService` intents in `onGetSession`, and untrusted or
 UID-mismatched rejection across `onGetSession` and `MediaSession.Callback.onConnect`
 with notification and `InAppNarrationService` behavior retained), plus
 media-button starts (active session URI, this app, `Process.SYSTEM_UID`, a
-foreign caller, a different URI, and the playback notification action),
+foreign caller, a different URI, a start with no binder caller, and the
+playback notification action),
 alongside these contracts, and independent durability/sync tests. Also verify
 closed-owner `stopForDeletion` invalidation and sleep-timer `sessionExtras` publication across
 arm, replace, cancel, expiration, and close in `OrationPlaybackTest`.

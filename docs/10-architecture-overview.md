@@ -114,9 +114,11 @@ share sheet / file open / paste
   while `onGetSession` keeps returning the session for negative-UID internal
   `MediaSessionService` intents and rejecting all other controllers.
   `onStartCommand` forwards a media-button start only when the intent carries
-  the active session URI, or when this app (`Process.myUid()`) or the system
-  (`Process.SYSTEM_UID`) sent it. Notification actions carry that URI. Any other
-  media-button start is ignored.
+  the active session URI, or when the binder caller is still inside a
+  transaction and is this app (`Binder.getCallingUidOrThrow()` equals
+  `Process.myUid()`) or the system (`Process.SYSTEM_UID`). A start that arrives
+  with no session URI after the platform has cleared the caller is ignored.
+  Notification actions carry that URI. Any other media-button start is ignored.
   `ExoPlayer.Builder` configures `15,000 ms` seek-back and seek-forward
   increments, and `Media3PlaybackOutput` publishes active sleep-timer state
   into `MediaSession.setSessionExtras`.

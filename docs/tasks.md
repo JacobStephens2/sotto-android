@@ -7,8 +7,21 @@ owns complete validation (issue #30). Exported MediaSession authorization
 restricts controllers across `onGetSession` and `onConnect` (issue #32).
 PlayerScreen delegates to client `OrationPlayer` with MediaSession parity and
 unattached deletion invalidation (issue #34). Library actions follow the current
-Oration and sync admits explicit uploads by identity (issue #36).
-Updated 2026-11-24.
+Oration and sync admits explicit uploads by identity (issue #36). A media-button
+start is forwarded only for the active session URI, or when this app or the
+system is still the binder caller (issue #38).
+Updated 2026-11-25.
+
+## Media-button starts (issue #38)
+
+- [x] Forward a media-button start only when it carries the active session URI,
+      or when this app or the system sent it
+- [x] Keep playback notification actions working and ignore every other
+      media-button start; leave same-UID and verified trusted controller access
+      unchanged
+- [x] Cover the cases in `NarrationCommandsTest` and update ADR-008 plus the
+      governing architecture, testing, and style notes
+- [x] Validate both flavors' JVM suites and Android lint
 
 ## Live Library selection and upload admission (issue #36)
 
@@ -37,17 +50,6 @@ Updated 2026-11-24.
 - [x] Cover contracts in `OrationPlayerTest`, `PlayerScreenTest`,
       `OrationPlaybackTest`, and `NarrationCommandsTest`; update docs and verify
       both flavors' lint, tests, Roborazzi goldens, APKs, and manifest guards
-
-## Media-button starts (issue #38)
-
-- [x] Forward a media-button start only when it carries the active session URI,
-      or when this app or the system sent it
-- [x] Keep playback notification actions working and ignore every other
-      media-button start; leave same-UID and verified trusted controller access
-      unchanged
-- [x] Cover the cases in `NarrationCommandsTest` and update ADR-008 plus the
-      governing architecture, testing, and style notes
-- [x] Validate both flavors' JVM suites and Android lint
 
 ## Exported MediaSession authorization (issue #32)
 
