@@ -1,15 +1,17 @@
 package page.stephens.sotto.shell.service
 
-// The exported MediaSession service must ignore in-app commands and reject
-// unauthorized MediaSession controllers. Any other app can start an exported
-// service; delete, narrate, play, stop, and the sleep timer are accepted only
-// by the non-exported entry point the UI starts, and MediaSession access is
-// restricted to same-UID and verified trusted controllers (ADR-008).
+// The exported MediaSession service must ignore in-app commands, reject
+// unauthorized MediaSession controllers, and ignore a media-button start unless
+// it carries the active session URI or this app or the system sent it.
+// Notification actions carry that URI. Delete, narrate, play, stop, and the
+// sleep timer are accepted only by the non-exported entry point the UI starts
+// (ADR-008).
 
 import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.net.Uri
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
@@ -19,6 +21,7 @@ import android.os.Bundle
 import android.os.Looper
 import android.os.Process
 import android.provider.Settings
+import android.view.KeyEvent
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.MediaSession
@@ -552,6 +555,107 @@ class NarrationCommandsTest {
     }
 
     @Test
+    fun `a media-button start from another app without the session URI leaves playback running`() {
+        val playing = startPlaying("foreign-media-button")
+        deliverMediaButton(playing, Process.myUid() + 400, KeyEvent.KEYCODE_MEDIA_PAUSE)
+        val paused = becameTrue(1_500) { !playing.player.playWhenReady }
+
+        assertFalse(paused)
+        assertTrue(playing.player.playWhenReady)
+        assertEquals(1, playing.player.mediaItemCount)
+    }
+
+    @Test
+    fun `a media-button start that carries the active session URI pauses playback`() {
+        val id = "session-uri-media-button"
+        val playing = startPlaying(id)
+        val attackerUid = Process.myUid() + 401
+        ShadowBinder.setCallingUid(attackerUid)
+        try {
+            playing.service.onStartCommand(
+                mediaButton(KeyEvent.KEYCODE_MEDIA_PAUSE, data = sessionUri(playing.session)),
+                0,
+                2,
+            )
+        } finally {
+            ShadowBinder.reset()
+        }
+        await { !playing.player.playWhenReady }
+
+        assertFalse(playing.player.playWhenReady)
+        assertEquals(1, playing.player.mediaItemCount)
+    }
+
+    @Test
+    fun `a media-button start with a different URI from another app leaves playback running`() {
+        val playing = startPlaying("wrong-uri-media-button")
+        val other = Uri.parse("androidx.media3.session.mediasessionimpl:/not-this-session/1")
+        deliverMediaButton(playing, Process.myUid() + 402, KeyEvent.KEYCODE_MEDIA_PAUSE, other)
+        val paused = becameTrue(1_500) { !playing.player.playWhenReady }
+
+        assertFalse(paused)
+        assertTrue(playing.player.playWhenReady)
+    }
+
+    @Test
+    fun `a media-button start from this app pauses playback without the session URI`() {
+        val playing = startPlaying("app-media-button")
+        deliverMediaButton(playing, Process.myUid(), KeyEvent.KEYCODE_MEDIA_PAUSE)
+        await { !playing.player.playWhenReady }
+
+        assertFalse(playing.player.playWhenReady)
+    }
+
+    @Test
+    fun `a media-button start from the system pauses playback without the session URI`() {
+        val playing = startPlaying("system-media-button")
+        deliverMediaButton(playing, Process.SYSTEM_UID, KeyEvent.KEYCODE_MEDIA_PAUSE)
+        await { !playing.player.playWhenReady }
+
+        assertFalse(playing.player.playWhenReady)
+    }
+
+    @Test
+    fun `a media-button start from the system is forwarded even with a different URI`() {
+        val playing = startPlaying("system-other-uri-media-button")
+        val other = Uri.parse("androidx.media3.session.mediasessionimpl:/not-this-session/1")
+        deliverMediaButton(playing, Process.SYSTEM_UID, KeyEvent.KEYCODE_MEDIA_PAUSE, other)
+        await { !playing.player.playWhenReady }
+
+        assertFalse(playing.player.playWhenReady)
+    }
+
+    @Test
+    fun `the playback notification action pauses playback when another app could not`() {
+        val playing = startPlaying("notification-media-button")
+        // The notification is posted after playWhenReady, and a busy suite can
+        // leave that task queued when the play wait returns.
+        val notification = awaitForegroundNotification(playing.service)
+        assertNotNull(notification)
+        val pause = notification!!.actions?.firstNotNullOfOrNull { action ->
+            val pending = action.actionIntent ?: return@firstNotNullOfOrNull null
+            val intent = shadowOf(pending).savedIntent ?: return@firstNotNullOfOrNull null
+            val event = intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+            intent.takeIf {
+                it.action == Intent.ACTION_MEDIA_BUTTON &&
+                    (event?.keyCode == KeyEvent.KEYCODE_MEDIA_PAUSE ||
+                        event?.keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+            }
+        }
+        assertNotNull(pause)
+        ShadowBinder.setCallingUid(Process.myUid() + 404)
+        try {
+            playing.service.onStartCommand(pause, 0, 2)
+        } finally {
+            ShadowBinder.reset()
+        }
+        await { !playing.player.playWhenReady }
+
+        assertFalse(playing.player.playWhenReady)
+        assertEquals(sessionUri(playing.session), pause!!.data)
+    }
+
+    @Test
     fun `unattached Lab ResetGate clears PlaybackPersistence cached positions without eager startup`() {
         assertFalse(PlaybackPersistence.isInitializedForTest())
         insert("gate", status = "COMPLETE", audioBytes = 8, withAudio = true)
@@ -614,6 +718,59 @@ class NarrationCommandsTest {
         inApp = controller
         return controller.get()
     }
+
+    private class Playing(val service: NarrationService, val session: MediaSession, val player: Player)
+
+    private fun startPlaying(id: String): Playing {
+        insert(id, status = "COMPLETE", audioBytes = 8, withAudio = true)
+        val service = startNarration()
+        val session = service.onGetSession(controllerInfo(context.packageName, Process.myUid(), isTrusted = false))
+        assertNotNull(session)
+        assertNotNull(service.onBind(Intent("android.media.browse.MediaBrowserService")))
+        idle()
+        assertTrue(session!!.connectedControllers.any { session.isMediaNotificationController(it) })
+        val player = session.player
+        startInApp().onStartCommand(command(InAppNarrationService.ACTION_PLAY, id), 0, 1)
+        await { player.playWhenReady }
+        assertTrue(player.playWhenReady)
+        return Playing(service, session, player)
+    }
+
+    /** Media3 1.4.1 keeps this URI package-private; notification actions address it. */
+    private fun sessionUri(session: MediaSession): Uri {
+        val method = MediaSession::class.java.getDeclaredMethod("getUri")
+        method.isAccessible = true
+        return method.invoke(session) as Uri
+    }
+
+    private fun awaitForegroundNotification(service: NarrationService): android.app.Notification? {
+        val start = System.nanoTime()
+        while (System.nanoTime() - start < 3_000_000_000L) {
+            shadowOf(service).lastForegroundNotification?.let { return it }
+            shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS)
+        }
+        return shadowOf(service).lastForegroundNotification
+    }
+
+    private fun deliverMediaButton(
+        playing: Playing,
+        callingUid: Int,
+        keyCode: Int,
+        data: Uri? = null,
+    ) {
+        ShadowBinder.setCallingUid(callingUid)
+        try {
+            playing.service.onStartCommand(mediaButton(keyCode, data), 0, 2)
+        } finally {
+            ShadowBinder.reset()
+        }
+    }
+
+    private fun mediaButton(keyCode: Int, data: Uri? = null): Intent =
+        Intent(Intent.ACTION_MEDIA_BUTTON)
+            .setComponent(ComponentName(context, NarrationService::class.java))
+            .putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+            .apply { if (data != null) setData(data) }
 
     private fun command(action: String, id: String? = null, minutes: Int? = null): Intent =
         Intent(action).setComponent(ComponentName(context, InAppNarrationService::class.java)).apply {

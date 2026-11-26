@@ -154,9 +154,11 @@ and `MediaSession` controller authorization checks (same-UID, verified
 trusted including `SYSTEM_UID` and unresolvable UID packages, negative-UID
 internal `MediaSessionService` intents in `onGetSession`, and untrusted or
 UID-mismatched rejection across `onGetSession` and `MediaSession.Callback.onConnect`
-with notification and `InAppNarrationService` behavior retained) alongside these
-contracts, and independent durability/sync tests. Also verify closed-owner
-`stopForDeletion` invalidation and sleep-timer `sessionExtras` publication across
+with notification and `InAppNarrationService` behavior retained), plus
+media-button starts (active session URI, this app, `Process.SYSTEM_UID`, a
+foreign caller, a different URI, and the playback notification action),
+alongside these contracts, and independent durability/sync tests. Also verify
+closed-owner `stopForDeletion` invalidation and sleep-timer `sessionExtras` publication across
 arm, replace, cancel, expiration, and close in `OrationPlaybackTest`.
 `OrationPlayerTest` covers `SavedOrationPlayer` against real Room/temp `source.md`/
 `PlaybackPersistence` with controlled `PlayerTransport`/`PlayerCommands` for pre-load

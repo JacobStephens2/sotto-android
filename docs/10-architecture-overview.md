@@ -113,6 +113,10 @@ share sheet / file open / paste
   `PackageManager.getPackagesForUid` when resolvable and `uid != SYSTEM_UID`),
   while `onGetSession` keeps returning the session for negative-UID internal
   `MediaSessionService` intents and rejecting all other controllers.
+  `onStartCommand` forwards a media-button start only when the intent carries
+  the active session URI, or when this app (`Process.myUid()`) or the system
+  (`Process.SYSTEM_UID`) sent it. Notification actions carry that URI. Any other
+  media-button start is ignored.
   `ExoPlayer.Builder` configures `15,000 ms` seek-back and seek-forward
   increments, and `Media3PlaybackOutput` publishes active sleep-timer state
   into `MediaSession.setSessionExtras`.

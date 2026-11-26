@@ -118,6 +118,9 @@ src/testSync/  sync-flavor JVM suites (`SottoApiContractTest`,
   session, and enforces one controller authorization check across
   `onGetSession` and `MediaSession.Callback.onConnect` (same-UID or verified
   trusted controller, plus negative-UID internal intents in `onGetSession`).
+  Forward `Intent.ACTION_MEDIA_BUTTON` only when its data is the active session
+  URI, or the caller is this app or `Process.SYSTEM_UID`. Leave notification
+  actions working; they carry that URI. Ignore every other media-button start.
 - Naming mirrors [the domain glossary](../GLOSSARY.md): Oration, chunk,
   Narration worker, narrate - not "track,"
   "segment," "synthesize" in user-facing or domain code. ("Synthesis" is

@@ -38,6 +38,17 @@ Updated 2026-11-24.
       `OrationPlaybackTest`, and `NarrationCommandsTest`; update docs and verify
       both flavors' lint, tests, Roborazzi goldens, APKs, and manifest guards
 
+## Media-button starts (issue #38)
+
+- [x] Forward a media-button start only when it carries the active session URI,
+      or when this app or the system sent it
+- [x] Keep playback notification actions working and ignore every other
+      media-button start; leave same-UID and verified trusted controller access
+      unchanged
+- [x] Cover the cases in `NarrationCommandsTest` and update ADR-008 plus the
+      governing architecture, testing, and style notes
+- [x] Validate both flavors' JVM suites and Android lint
+
 ## Exported MediaSession authorization (issue #32)
 
 - [x] Install `MediaSession.Callback` via `MediaSession.Builder.setCallback` and

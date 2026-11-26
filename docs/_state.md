@@ -1,5 +1,39 @@
 # _state.md - sotto-android session handoff
 
+2026-11-25: Issue #38 stops `NarrationService` from forwarding a media-button
+start unless the intent carries the active session URI, or the caller is this
+app (`Process.myUid()`) or the system (`Process.SYSTEM_UID`). Playback
+notification actions keep working because they carry that URI. Same-UID and
+verified trusted controller access is unchanged. ADR-008's session-authorization
+note matches. Media3 1.4.1 keeps the session URI package-private, so the check
+reads `MediaSession.getUri` directly.
+
+`NarrationCommandsTest` gained 7 tests: a foreign start without the URI, a
+foreign start with the active URI, a foreign start with a different URI, a
+start from this app, a start from the system, a system start with a different
+URI, and the playback notification's pause action. Before the gate, a foreign
+pause with the session attached failed
+`a media-button start from another app without the session URI leaves playback running`
+(`AssertionError` at `NarrationCommandsTest.kt`, playback paused). It passes
+after the gate.
+
+Final verification passed with 187 local tests (18 suites) and 226 sync tests
+(21 suites), zero failures, errors, or skips. Android lint passed with 0 errors
+(30 warnings on `localDebug`, 32 on `syncDebug`; none in the media-button
+change). No `ktlintCheck` task exists (issue #7). No hardware performance claim
+is made.
+
+```sh
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew --no-daemon --max-workers=2 lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest -Proborazzi.record=false -Proborazzi.verify=true --console=plain
+```
+
+The unit tests were re-run after the notification assertion waited for the
+foreground notification, which had been absent once inside the full sync suite:
+
+```sh
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew --no-daemon --max-workers=2 testLocalDebugUnitTest testSyncDebugUnitTest -Proborazzi.record=false -Proborazzi.verify=true --console=plain
+```
+
 2026-11-24 - Issue #36 ties the Library sheet and its drafts to an Oration's
 ID and creation time. The lifecycle-collected Room list supplies the current
 row. Removing or replacing that row closes the sheet. `SyncCoordinator.upload`

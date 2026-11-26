@@ -20,6 +20,15 @@ return the session for negative-UID internal `MediaSessionService` intents
 (`controllerInfo.uid < 0`). All other controllers are rejected (`null` from
 `onGetSession`; `MediaSession.ConnectionResult.reject()` from `onConnect`).
 
+Media-button update (2026-11-25, issue #38):
+`NarrationService.onStartCommand` forwards `Intent.ACTION_MEDIA_BUTTON` to the
+Media3 session only when the intent data is the active session URI, or when the
+caller is this app (`Binder.getCallingUid() == Process.myUid()`) or the system
+(`Process.SYSTEM_UID`). Media3 notification actions carry that URI, so play,
+pause, and seek on the playback notification keep working. Any other
+media-button start is ignored and is not passed to `MediaSessionService`.
+Same-UID and verified trusted controller access is unchanged.
+
 ## Decision
 
 Start narration, play, stop narration, the sleep timer, and delete are accepted
@@ -52,3 +61,7 @@ put on that intent.
   `NarrationService.onStartCommand`. Does not rule out ordinary Media3
   transport controls for same-UID or verified trusted controllers; rules out
   granting `MediaSession` access to untrusted or UID-mismatched controllers.
+- Rules out forwarding a media-button start that neither carries the active
+  session URI nor comes from this app or the system. Does not rule out
+  notification actions, which carry that URI, or a media-button start from
+  this app or `Process.SYSTEM_UID`.
