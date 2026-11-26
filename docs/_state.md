@@ -1,5 +1,40 @@
 # _state.md - sotto-android session handoff
 
+2026-11-25: Issue #38 stops `NarrationService` from forwarding a media-button
+start unless the intent carries the active session URI, or the caller is still
+inside a binder transaction and is this app (`Binder.getCallingUidOrThrow()`
+equals `Process.myUid()`) or the system (`Process.SYSTEM_UID`). `onStartCommand`
+runs after the `startService` transaction, and `Binder.getCallingUid()` then
+reports this process for every caller, so a start with no session URI and no
+live caller is ignored. Playback notification actions keep working because they
+carry that URI. Same-UID and verified trusted controller access is unchanged.
+ADR-008's session-authorization note matches. Media3 1.4.1 keeps the session
+URI package-private, so the check reads `MediaSession.getUri` directly.
+
+`NarrationCommandsTest` covers a foreign start without the URI, a foreign start
+with the active URI, a foreign start with a different URI, a start from this
+app, a start from the system, a system start with a different URI, a start with
+no binder caller, and the playback notification's pause action. Before the
+transaction check, `a media-button start with no binder caller is ignored`
+failed (`AssertionError` at `NarrationCommandsTest.kt:639`: playback paused
+while `getCallingUid()` was `Process.myUid()` and `getCallingUidOrThrow()`
+threw `IllegalStateException`). It passes after the gate reads
+`getCallingUidOrThrow()`.
+
+Final verification passed with 188 local tests (18 suites) and 227 sync tests
+(21 suites), zero failures, errors, or skips. Android lint passed with 0 errors
+(30 warnings on `localDebug`, 32 on `syncDebug`; none in the media-button
+change). No `ktlintCheck` task exists (issue #7). No hardware performance claim
+is made.
+
+```sh
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=/home/jacob/Android/Sdk ./gradlew --no-daemon --max-workers=2 lintLocalDebug lintSyncDebug testLocalDebugUnitTest testSyncDebugUnitTest -Proborazzi.record=false -Proborazzi.verify=true --console=plain
+```
+
+That command is the run after the caller check switched to
+`getCallingUidOrThrow()`. An earlier full run had already passed once the
+notification assertion waited for the foreground notification.
+
 2026-11-24 - Issue #36 ties the Library sheet and its drafts to an Oration's
 ID and creation time. The lifecycle-collected Room list supplies the current
 row. Removing or replacing that row closes the sheet. `SyncCoordinator.upload`

@@ -11,6 +11,8 @@ package page.stephens.sotto.shell.service
 // finding says bank buffer while cold).
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Binder
 import android.os.Process
 import android.widget.Toast
 import androidx.annotation.OptIn
@@ -105,10 +107,41 @@ class NarrationService : MediaSessionService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Exported for the Media3 session, so any app can start this service.
         // Narrate, play, stop, sleep timer, and delete are ignored here;
-        // InAppNarrationService accepts them in-process (ADR-008). super still
-        // delivers media-button and session intents.
+        // InAppNarrationService accepts them in-process (ADR-008). A media-button
+        // start is forwarded only when it carries the active session URI, or when
+        // this app or the system is still the binder caller. Notification actions
+        // carry that URI.
+        if (isIgnoredMediaButton(intent)) return START_NOT_STICKY
         super.onStartCommand(intent, flags, startId)
         return START_NOT_STICKY
+    }
+
+    private fun isIgnoredMediaButton(intent: Intent?): Boolean {
+        if (intent?.action != Intent.ACTION_MEDIA_BUTTON) return false
+        val data = intent.data
+        val active = activeSessionUri()
+        if (data != null && active != null && data == active) return false
+        // onStartCommand runs after the startService transaction, so only a
+        // caller still inside one can authorize a media button without the URI.
+        val uid = try {
+            Binder.getCallingUidOrThrow()
+        } catch (_: IllegalStateException) {
+            return true
+        }
+        return uid != Process.myUid() && uid != Process.SYSTEM_UID
+    }
+
+    // Media3 1.4.1 keeps the session URI package-private. Notification actions
+    // address it, so the media-button check has to read the same value.
+    private fun activeSessionUri(): Uri? {
+        val active = session ?: return null
+        return try {
+            val method = MediaSession::class.java.getDeclaredMethod("getUri")
+            method.isAccessible = true
+            method.invoke(active) as Uri
+        } catch (_: ReflectiveOperationException) {
+            null
+        }
     }
 
     private fun performInApp(command: InAppCommand) {
